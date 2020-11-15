@@ -167,7 +167,9 @@ export default class Ldap {
       stream.emit('error', e)
     }
 
-    this.getClient().then(client => client.search(base, options ?? {}, controls ?? [], (err, result) => {
+    this.getClient().then(client => {
+      finished(stream as Readable, () => { this.release(client) })
+      client.search(base, options ?? {}, controls ?? [], (err, result) => {
       if (err) return sendError(err)
 
       result.on('searchEntry', data => {
@@ -190,8 +192,8 @@ export default class Ldap {
           sendError(new Error(`${result?.errorMessage ?? 'LDAP Search Failed'}\nStatus: ${result?.status ?? 'undefined'}`))
         }
       })
-      finished(stream as Readable, {}, () => this.release(client))
-    })).catch(sendError)
+      })
+    }).catch(sendError)
     return stream
   }
 

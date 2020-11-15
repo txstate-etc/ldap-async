@@ -5,12 +5,26 @@ import ldap from '../src/client'
 
 const reps = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
-describe('basic tests', () => {
+describe('connection leak tests', () => {
   it('should not leak connections for basic queries', async () => {
     await Promise.all(reps.map(async () => {
       await ldap.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
     }))
     expect((ldap as any).clients).to.have.lengthOf(5)
+    for (const c of (ldap as any).clients) {
+      expect(c.busy).to.not.be.true
+    }
+  })
+  it('should not leak a connection when a query has a syntax error', async () => {
+    try {
+      const user = await ldap.get<{ givenName: string }>('ou=people,dc=planetexpress,dc=com', {
+        scope: 'sub',
+        filter: '(&(objectClass=person)(givenName=Hubert)'
+      })
+      expect(true, 'should not have gotten this far').to.be.false
+    } catch (e) {
+      expect(e.message).to.contain('unbalanced parens')
+    }
     for (const c of (ldap as any).clients) {
       expect(c.busy).to.not.be.true
     }
