@@ -84,7 +84,7 @@ const people = await ldap.search('ou=people,dc=yourdomain,dc=com', {
 })
 ```
 ## Filter helpers
-For convenience, a few helper functions are provided to help you construct LDAP filters: `in`, `any`, `all`, and `anyall`.
+For convenience, a few helper functions are provided to help you construct LDAP filters: `in`, `any`, `all`, and `anyall`. These functions take care of escaping for you.
 * Everyone named John or Mary:
   ```javascript
   ldap.in(['John', 'Mary'], 'givenName')
