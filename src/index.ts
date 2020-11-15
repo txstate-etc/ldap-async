@@ -1,5 +1,5 @@
 import { Client, ClientOptions, Control, createClient, SearchOptions } from 'ldapjs'
-import { Readable } from 'stream'
+import { Readable, finished } from 'stream'
 import { replacements } from './escape'
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
@@ -155,10 +155,8 @@ export default class Ldap {
       unpause = undefined
     }
     stream._destroy = (err: Error, cb) => {
-      if (err) stream.emit('error', err)
       canceled = true
-      stream.emit('close')
-      cb()
+      cb(err)
     }
     const stacktraceError: { stack?: string } = {}
     Error.captureStackTrace(stacktraceError, this.stream)
@@ -192,7 +190,7 @@ export default class Ldap {
           sendError(new Error(`${result?.errorMessage ?? 'LDAP Search Failed'}\nStatus: ${result?.status ?? 'undefined'}`))
         }
       })
-      this.release(client)
+      finished(stream as Readable, {}, () => this.release(client))
     })).catch(sendError)
     return stream
   }

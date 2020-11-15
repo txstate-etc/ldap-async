@@ -10,6 +10,17 @@ describe('basic tests', () => {
     })
     expect(users).to.have.lengthOf(7)
   })
+  it('should be able to search for a single user', async () => {
+    const user = await ldap.get<{ givenName: string }>('ou=people,dc=planetexpress,dc=com', {
+      scope: 'sub',
+      filter: '(&(objectClass=person)(givenName=Hubert))'
+    })
+    expect(user.givenName).to.equal('Hubert')
+  })
+  it('should be able to retrieve a single person by DN', async () => {
+    const user = await ldap.get<{ givenName: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+    expect(user.givenName).to.equal('Philip')
+  })
   it('should be able to search for all groups', async () => {
     const users = await ldap.search('ou=people,dc=planetexpress,dc=com', {
       scope: 'sub',

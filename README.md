@@ -89,7 +89,7 @@ To avoid using too much memory on huge datasets, we provide a `stream` method th
 ```javascript
 const stream = ldap.stream('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
-  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n}`)})`
+  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n})`)})`
 })
 for await (const person of stream) {
   // do some work on the person
