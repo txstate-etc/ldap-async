@@ -27,7 +27,7 @@ make that easy, this library provides a convenient way to import a singleton poo
 environment variables:
 ```
   LDAP_HOST
-  LDAP_PORT
+  LDAP_PORT // default is 389 or 636 if you set LDAP_SECURE
   LDAP_SECURE // set truthy to use ldaps protocol
   LDAP_DN // the DN with which to bind
   LDAP_PASS // the password for the bind DN
@@ -80,7 +80,7 @@ More complex queries may also use `ldap.filter` inside a map function, such as t
 ```javascript
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
-  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n}`)})`
+  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n})`)})`
 })
 ```
 # Advanced Usage
