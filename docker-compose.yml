@@ -1,0 +1,15 @@
+version: '3'
+services:
+  ldap-async:
+    build:
+      context: .
+    environment:
+      LDAP_HOST: openldap
+      LDAP_DN: cn=admin,dc=planetexpress,dc=com
+      LDAP_PASS: GoodNewsEveryone
+    depends_on:
+      - openldap
+  openldap:
+    image: rroemhild/test-openldap
+    logging:
+      driver: none
