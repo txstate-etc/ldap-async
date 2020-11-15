@@ -80,16 +80,44 @@ More complex queries may also use `ldap.filter` inside a map function, such as t
 ```javascript
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
-  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n})`)})`
+  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n})`).join('')})`
 })
 ```
+## Filter helpers
+For convenience, a few helper functions are provided to help you construct LDAP filters: `in`, `any`, `all`, and `anyall`.
+* Everyone named John or Mary:
+  ```javascript
+  ldap.in(['John', 'Mary'], 'givenName')
+  // => '(|(givenName=John)(givenName=Mary))
+  ```
+* Everyone named John or with the surname Smith
+  ```javascript
+  ldap.any({ givenName: 'John', sn: 'Smith' })
+  // => '(|(givenName=John)(sn=Smith))
+  ```
+* Everyone named John Smith
+  ```javascript
+  ldap.all({ givenName: 'John', sn: 'Smith' })
+  // => '(&(givenName=John)(sn=Smith))
+  ```
+* Everyone named John Smith or Mary Scott
+  ```javascript
+  ldap.anyall([{ givenName: 'John', sn: 'Smith' }, { givenName: 'Mary', sn: 'Scott' }])
+  // => '(|(&(givenName=John)(sn=Smith))(&(givenName=Mary)(sn=Scott)))'
+  ```
+Note that `any`, `all` and `anyall` can accept an optional `wildcard` parameter if you want users to be able to provide wildcards. Other special characters like parentheses will be properly escaped.
+* Everyone named John whose surname starts with S
+  ```javascript
+  ldap.all({ givenName: 'John', sn: 'S*' }, true)
+  // => '(&(givenName=John)(sn=S*))
+  ```
 # Advanced Usage
 ## Streaming
 To avoid using too much memory on huge datasets, we provide a `stream` method that performs the same as `search` but returns a node `Readable`. It is recommended to use the async iterator pattern:
 ```javascript
 const stream = ldap.stream('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
-  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n})`)})`
+  filter: `(|${myNames.map(n => ldap.filter`(givenName=${n})`).join('')})`
 })
 for await (const person of stream) {
   // do some work on the person

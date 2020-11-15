@@ -59,16 +59,4 @@ describe('basic tests', () => {
     await Promise.all(promises)
     expect((ldap as any).clients).to.have.lengthOf(5)
   })
-  it('should properly escape strings in queries with use of ldap.filter function', async () => {
-    const injection = await ldap.search('ou=people,dc=planetexpress,dc=com', {
-      scope: 'sub',
-      filter: `givenName=${'H*'}`
-    })
-    expect(injection).to.have.lengthOf(2)
-    const safe = await ldap.search('ou=people,dc=planetexpress,dc=com', {
-      scope: 'sub',
-      filter: ldap.filter`givenName=${'H*'}`
-    })
-    expect(safe).to.have.lengthOf(0)
-  })
 })

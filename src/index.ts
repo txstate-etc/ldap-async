@@ -1,6 +1,5 @@
 import { Client, ClientOptions, Control, createClient, SearchOptions } from 'ldapjs'
 import { Readable, finished } from 'stream'
-import { replacements } from './escape'
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
 interface StreamIterator <T> {
@@ -21,6 +20,27 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
 
 interface LdapClient extends Client {
   busy?: boolean
+}
+
+const filterReplacements = {
+  '\0': '\\00',
+  '(': '\\28',
+  ')': '\\29',
+  '*': '\\2a',
+  '\\': '\\5c'
+}
+
+const dnReplacements = {
+  '"': '\\"',
+  '#': '\\#',
+  '+': '\\+',
+  ',': '\\,',
+  ';': '\\;',
+  '<': '\\<',
+  '=': '\\=',
+  '>': '\\>',
+  '\\': '\\\\',
+  ' ': '\\ '
 }
 
 export default class Ldap {
@@ -170,55 +190,75 @@ export default class Ldap {
     this.getClient().then(client => {
       finished(stream as Readable, () => { this.release(client) })
       client.search(base, options ?? {}, controls ?? [], (err, result) => {
-      if (err) return sendError(err)
+        if (err) return sendError(err)
 
-      result.on('searchEntry', data => {
-        if (canceled) return
-        if (!stream.push(data.object)) paused = true
-      })
+        result.on('searchEntry', data => {
+          if (canceled) return
+          if (!stream.push(data.object)) paused = true
+        })
 
-      result.on('page', (result, cb) => {
-        if (paused) unpause = cb
-        else cb?.()
-      })
+        result.on('page', (result, cb) => {
+          if (paused) unpause = cb
+          else cb?.()
+        })
 
-      result.on('error', sendError)
+        result.on('error', sendError)
 
-      result.on('end', (result) => {
-        if (canceled) return
-        if (result?.status === 0) {
-          stream.push(null)
-        } else {
-          sendError(new Error(`${result?.errorMessage ?? 'LDAP Search Failed'}\nStatus: ${result?.status ?? 'undefined'}`))
-        }
-      })
+        result.on('end', (result) => {
+          if (canceled) return
+          if (result?.status === 0) {
+            stream.push(null)
+          } else {
+            sendError(new Error(`${result?.errorMessage ?? 'LDAP Search Failed'}\nStatus: ${result?.status ?? 'undefined'}`))
+          }
+        })
       })
     }).catch(sendError)
     return stream
   }
 
-  filter (strings: TemplateStringsArray, ...values: (string | number)[]) {
+  protected templateLiteralEscape (regex: RegExp, replacements: any, strings: TemplateStringsArray, values: (string | number)[]) {
     let safe = ''
-    strings.forEach((string, i) => {
-      safe += string
+    for (let i = 0; i < strings.length; i++) {
+      safe += strings[i]
       if (values.length > i) {
-        safe += `${values[i]}`.replace(/[\0()*\\]/gm, (ch: string) => (replacements.filter as any)[ch])
+        safe += `${values[i]}`.replace(new RegExp(regex.source, 'gm'), (ch: string) => replacements[ch])
       }
-    })
+    }
     return safe
   }
 
+  filter (strings: TemplateStringsArray, ...values: (string | number)[]) {
+    return this.templateLiteralEscape(/[\0()*\\]/, filterReplacements, strings, values)
+  }
+
+  filterAllowWildcard (strings: TemplateStringsArray, ...values: (string | number)[]) {
+    return this.templateLiteralEscape(/[\0()\\]/, filterReplacements, strings, values)
+  }
+
   dn (strings: TemplateStringsArray, ...values: (string | number)[]) {
-    let safe = ''
-    strings.forEach((string, i) => {
-      safe += string
-      if (values.length > i) {
-        safe += `${values[i]}`
-          .replace(/["#+,;<=>\\]/gm, (ch) => (replacements.dn as any)[ch])
-          .replace(/^ /gm, (ch) => (replacements.dnBegin as any)[ch])
-          .replace(/ $/gm, (ch) => (replacements.dnEnd as any)[ch])
-      }
-    })
-    return safe
+    return this.templateLiteralEscape(/((^ )|["#+,;<=>\\]|( $))/, dnReplacements, strings, values)
+  }
+
+  in (values: (string | number)[], property: string) {
+    return `(|${values.map(v => this.filter`(${property}=${v})`).join('')})`
+  }
+
+  any (values: Record<string, (string | number)>, wildcards = false) {
+    return wildcards
+      ? `(|${Object.entries(values).map(([k, v]) => this.filterAllowWildcard`(${k}=${v})`).join('')})`
+      : `(|${Object.entries(values).map(([k, v]) => this.filter`(${k}=${v})`).join('')})`
+  }
+
+  all (values: Record<string, (string | number)>, wildcards = false) {
+    return wildcards
+      ? `(&${Object.entries(values).map(([k, v]) => this.filterAllowWildcard`(${k}=${v})`).join('')})`
+      : `(&${Object.entries(values).map(([k, v]) => this.filter`(${k}=${v})`).join('')})`
+  }
+
+  anyall (values: Record<string, string|number>[], wildcards = false) {
+    return wildcards
+      ? `(|${values.map(v => `(&${Object.entries(v).map(([prop, val]) => this.filterAllowWildcard`(${prop}=${val})`).join('')})`).join('')})`
+      : `(|${values.map(v => `(&${Object.entries(v).map(([prop, val]) => this.filter`(${prop}=${val})`).join('')})`).join('')})`
   }
 }
