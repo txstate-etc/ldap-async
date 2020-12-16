@@ -168,7 +168,7 @@ export default class Ldap {
     let unpause: Function | undefined
     let paused = true
     let canceled = false
-    const stream = new Readable({ objectMode: true }) as GenericReadable<T>
+    const stream = new Readable({ objectMode: true, autoDestroy: true }) as GenericReadable<T>
     stream._read = () => {
       paused = false
       unpause?.()
