@@ -5,11 +5,11 @@
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
-    "prepublishOnly": "echo 'Must use command npm run pub' && exit 1",
-    "build": "rm -rf ./lib && tsc",
+    "prepublishOnly": "node prepublish.js",
+    "build": "rm -rf ./lib && tsc && cp package.json ./lib/ && cp README.md ./lib/ && cp LICENSE ./lib/ && cp prepublish.js ./lib/",
     "mocha": "mocha -r ts-node/register test/**/*.ts --exit",
     "test": "./test.sh",
-    "pub": "npm run build && cp package.json ./lib/ && cp README.md ./lib/ && cp LICENSE ./lib/ && cd ./lib && npm publish --ignore-scripts"
+    "pub": "npm run build && cd ./lib && RELEASE_MODE=true npm publish"
   },
   "dependencies": {
     "ldapjs": "^2.3.1",
