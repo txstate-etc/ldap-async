@@ -1,5 +1,5 @@
 # Overview
-This library has a few core principles:
+This library is a wrapper around [ldapjs](http://ldapjs.org/) providing convenience with a few core principles:
 * Focus on promises and async iterators, do away with callbacks and event-emitting streams
 * Always use a connection pool
 * Hide everything having to do with acquiring/releasing connections
@@ -8,12 +8,26 @@ This library has a few core principles:
 # Getting Started
 ## Standard connection
 An Ldap instance represents a connection pool. You will want to make a single pool and export it so that it can
-be imported all over your code.
+be imported in any other code file in your project.
 ```javascript
 import Ldap from 'ldap-async'
 export const ldap = new Ldap({
+  // either
+  url: 'ldap://yourhost:10389',
+  // or
   host: 'yourhost',
-  ...
+  port: 10389,
+  secure: false,
+
+  // optional pool size (default is 5 simultaneous connections)
+  poolSize: 5,
+
+  // then your login and password
+  bindDN: 'cn=root',
+  bindCredentials: 'secret',
+
+  // and any other options supported by ldapjs
+  timeout: 30000
 })
 
 async function main() {

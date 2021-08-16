@@ -1,6 +1,6 @@
 {
   "name": "ldap-async",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A wrapper around ldapjs to provide promises, pooling, config by environment, and other conveniences.",
   "main": "index.js",
   "types": "index.d.ts",
@@ -12,27 +12,24 @@
     "pub": "npm run build && cp package.json ./lib/ && cp README.md ./lib/ && cp LICENSE ./lib/ && cd ./lib && npm publish --ignore-scripts"
   },
   "dependencies": {
-    "ldapjs": "^2.2.1",
-    "@types/ldapjs": "^1.0.9"
+    "ldapjs": "^2.3.1",
+    "@types/ldapjs": "^2.2.0"
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
-    "@types/chai-as-promised": "^7.1.3",
-    "@types/mocha": "^8.0.3",
-    "@types/node": "^14.14.6",
+    "@types/mocha": "^9.0.0",
+    "@types/node": "^16.6.1",
     "@typescript-eslint/eslint-plugin": "^4.6.1",
     "@typescript-eslint/parser": "^4.6.1",
     "chai": "^4.2.0",
-    "chai-as-promised": "^7.1.1",
     "eslint": "^7.12.1",
-    "eslint-config-standard-with-typescript": "^19.0.1",
+    "eslint-config-standard-with-typescript": "^20.0.0",
     "eslint-plugin-import": "^2.22.1",
     "eslint-plugin-node": "^11.1.0",
-    "eslint-plugin-promise": "^4.2.1",
-    "eslint-plugin-standard": "^4.0.2",
-    "mocha": "^8.2.1",
-    "ts-node": "^9.0.0",
-    "typescript": "^4.0.5"
+    "eslint-plugin-promise": "^5.1.0",
+    "mocha": "^9.0.3",
+    "ts-node": "^10.2.0",
+    "typescript": "^4.3.5"
   },
   "repository": {
     "type": "git",
