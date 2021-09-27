@@ -15,6 +15,15 @@ describe('connection leak tests', () => {
       expect(c.busy).to.not.be.true
     }
   })
+  it('should not leak connections for setAttribute queries', async () => {
+    await Promise.all(reps.map(async () => {
+      await ldap.setAttribute('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com', 'description', 'Human')
+    }))
+    expect((ldap as any).clients).to.have.lengthOf(5)
+    for (const c of (ldap as any).clients) {
+      expect(c.busy).to.not.be.true
+    }
+  })
   it('should not leak a connection when a query has a syntax error', async () => {
     try {
       const user = await ldap.get<{ givenName: string }>('ou=people,dc=planetexpress,dc=com', {

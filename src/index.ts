@@ -219,14 +219,17 @@ export default class Ldap {
   }
 
   async setAttribute (dn: string, attribute: string, value: any) {
-    return await new Promise<boolean>((resolve, reject) => {
-      this.getClient().then(client => {
+    const client = await this.getClient()
+    try {
+      return await new Promise<boolean>((resolve, reject) => {
         client.modify(dn, new Change({ operation: 'replace', modification: { [attribute]: value } }), err => {
           if (err) reject(err)
-          resolve(true)
+          else resolve(true)
         })
-      }).catch(reject)
-    })
+      })
+    } finally {
+      this.release(client)
+    }
   }
 
   protected templateLiteralEscape (regex: RegExp, replacements: any, strings: TemplateStringsArray, values: (string | number)[]) {
