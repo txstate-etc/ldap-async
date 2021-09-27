@@ -1,10 +1,16 @@
 {
   "name": "ldap-async",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "A wrapper around ldapjs to provide promises, pooling, config by environment, and other conveniences.",
   "exports": {
-    "require": "./dist/index.js",
-    "import": "./dist-esm/index.js"
+    ".": {
+      "require": "./dist/index.js",
+      "import": "./dist-esm/index.js"
+    },
+    "./client": {
+      "require": "./dist/client.js",
+      "import": "./dist-esm/client.js"
+    }
   },
   "types": "dist/index.d.ts",
   "typesVersions": {
