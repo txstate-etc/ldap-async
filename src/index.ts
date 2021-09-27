@@ -1,4 +1,4 @@
-import { Client, ClientOptions, Control, createClient, SearchOptions } from 'ldapjs'
+import { Change, Client, ClientOptions, Control, createClient, SearchOptions } from 'ldapjs'
 import { Readable, finished } from 'stream'
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
@@ -216,6 +216,17 @@ export default class Ldap {
       })
     }).catch(sendError)
     return stream
+  }
+
+  async setAttribute (dn: string, attribute: string, value: any) {
+    return await new Promise<boolean>((resolve, reject) => {
+      this.getClient().then(client => {
+        client.modify(dn, new Change({ operation: 'replace', modification: { [attribute]: value } }), err => {
+          if (err) reject(err)
+          resolve(true)
+        })
+      }).catch(reject)
+    })
   }
 
   protected templateLiteralEscape (regex: RegExp, replacements: any, strings: TemplateStringsArray, values: (string | number)[]) {

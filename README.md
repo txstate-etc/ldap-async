@@ -61,20 +61,22 @@ main().catch(e => console.error(e))
 ## CommonJS imports
 You must refer to `.default` when importing with `require`:
 ```javascript
-const ldap = require('ldap-async/client').default // or
-const { default: ldap } = require('ldap-async/db') // or
-const Ldap = require('ldap-async').default // or
-const { default: Ldap } = require('ldap-async')
+const Ldap = require('ldap-async').default
+// or the instance created with environment variables (see above)
+const ldap = require('ldap-async/client').default
 ```
 # Basic Usage
 Convenience methods are provided that allow you to specify the kind of operation you are about
-to do and the kind of return data you expect. For now only searching is implemented.
+to do and the type of return data you expect. For now only get, search, and setAttribute are implemented.
 ## Querying
 ```javascript
 const person = await ldap.get('cn=you,ou=people,dc=yourdomain,dc=com')
 console.log(person) // { givenName: 'John', ... }
+
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
 console.log(people) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
+
+await ldap.setAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', 'newemail@company.com')
 ```
 ## Escaping
 When you construct LDAP search query strings, it's important to escape any input strings to prevent injection attacks. LDAP has two kinds of strings with different escaping requirements, so we provide a template literal helper for each.
