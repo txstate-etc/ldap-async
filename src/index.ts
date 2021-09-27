@@ -92,6 +92,7 @@ export default class Ldap {
           client.removeAllListeners('setupError')
           client.bind(this.bindDN, this.bindCredentials, err => {
             if (err) reject(err)
+            client.on('error', e => console.warn('Caught an error on ldap client, it is probably a connection problem that will auto-reconnect.', e.message))
             resolve(client)
           })
         })
