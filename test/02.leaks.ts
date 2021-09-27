@@ -22,7 +22,7 @@ describe('connection leak tests', () => {
         filter: '(&(objectClass=person)(givenName=Hubert)'
       })
       expect(true, 'should not have gotten this far').to.be.false
-    } catch (e) {
+    } catch (e: any) {
       expect(e.message).to.contain('unbalanced parens')
     }
     for (const c of (ldap as any).clients) {
@@ -73,7 +73,7 @@ describe('connection leak tests', () => {
         }
         expect(count).to.be.greaterThan(3)
       }))
-    } catch (e) {
+    } catch (e: any) {
       expect(e.message).to.equal('fail!')
     }
     // allow some time for all the promises to finish
