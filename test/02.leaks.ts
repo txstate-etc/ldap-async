@@ -15,9 +15,22 @@ describe('connection leak tests', () => {
       expect(c.busy).to.not.be.true
     }
   })
-  it('should not leak connections for setAttribute queries', async () => {
+  it('should not leak connections for setAttribute actions', async () => {
     await Promise.all(reps.map(async () => {
       await ldap.setAttribute('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com', 'description', 'Human')
+    }))
+    expect((ldap as any).clients).to.have.lengthOf(5)
+    for (const c of (ldap as any).clients) {
+      expect(c.busy).to.not.be.true
+    }
+  })
+  it('should not leak connections for add actions', async () => {
+    await Promise.all(reps.map(async (i) => {
+      await ldap.add(`cn=test_group${i},ou=people,dc=planetexpress,dc=com`, {
+        objectclass: ['Group', 'top'],
+        groupType: '2147483650',
+        cn: 'test_group' + String(i)
+      })
     }))
     expect((ldap as any).clients).to.have.lengthOf(5)
     for (const c of (ldap as any).clients) {

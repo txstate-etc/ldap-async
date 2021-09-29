@@ -218,18 +218,114 @@ export default class Ldap {
     return stream
   }
 
-  async setAttribute (dn: string, attribute: string, value: any) {
+  protected async useClient<T>(callback: (client: LdapClient) => Promise<T>) {
     const client = await this.getClient()
     try {
-      return await new Promise<boolean>((resolve, reject) => {
-        client.modify(dn, new Change({ operation: 'replace', modification: { [attribute]: value } }), err => {
-          if (err) reject(err)
-          else resolve(true)
-        })
-      })
+      return await callback(client)
     } finally {
       this.release(client)
     }
+  }
+
+  /**
+   * Raw access to the modify LDAP functionality. Consider setAttribute, pushAttribute,
+   * or pullAttribute instead, or addMember/removeMember to manage group memberships. These
+   * methods add extra convenience.
+   */
+  async modify (dn: string, operation: string, modification: any) {
+    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
+      client.modify(dn, new Change({ operation, modification }), err => {
+        if (err) reject(err)
+        else resolve(true)
+      })
+    }))
+  }
+
+  /**
+   * Add an object into the system.
+   */
+  async add (newDn: string, entry: any) {
+    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
+      client.add(newDn, entry, err => {
+        if (err) reject(err)
+        else resolve(true)
+      })
+    }))
+  }
+
+  /**
+   * Remove an object from the system.
+   */
+  async remove (dn: string) {
+    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
+      client.del(dn, err => {
+        if (err) reject(err)
+        else resolve(true)
+      })
+    }))
+  }
+
+  /**
+   * Rename an object.
+   */
+  async modifyDN (oldDn: string, newDn: string) {
+    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
+      client.modifyDN(oldDn, newDn, err => {
+        if (err) reject(err)
+        else resolve(true)
+      })
+    }))
+  }
+
+  /**
+   * Use this method to completely replace an attribute. If you use it on an array attribute,
+   * any existing values will be lost.
+   */
+  async setAttribute (dn: string, attribute: string, value: any) {
+    return await this.modify(dn, 'replace', { [attribute]: value })
+  }
+
+  /**
+   * Use this method to add more values to an array attribute without removing any existing values. Any
+   * values that already exist will be ignored (if you used a raw 'modify' operation, you'd get an error).
+   */
+  async pushAttribute (dn: string, attribute: string, valueOrValues: string|string[]) {
+    const values = Array.isArray(valueOrValues) ? valueOrValues : [valueOrValues]
+    const current = await this.get(dn)
+    const existingValues = new Set(current[attribute] ?? [])
+    const newValues = values.filter(v => !existingValues.has(v))
+    if (newValues.length === 0) return true
+    return await this.modify(dn, 'add', { [attribute]: newValues })
+  }
+
+  /**
+   * Use this method to remove the specified values from an array attribute while leaving any other
+   * values in place. Any values that don't already exist will be ignored (if you used a raw 'modify'
+   * operation, you'd get an error).
+   */
+  async pullAttribute (dn: string, attribute: string, valueOrValues: string|string[]) {
+    const values = Array.isArray(valueOrValues) ? valueOrValues : [valueOrValues]
+    const current = await this.get(dn)
+    const existingValues = new Set(current[attribute] ?? [])
+    const oldValues = values.filter(v => existingValues.has(v))
+    if (oldValues.length === 0) return true
+    return await this.modify(dn, 'delete', { [attribute]: oldValues })
+  }
+
+  /**
+   * Use this method to add a member to a group. memberdn can be an array. each memberdn can be a group or a person.
+   * Any memberdn entries that are already members will be ignored.
+   */
+  async addMember (memberdn: string|string[], groupdn: string) {
+    return await this.pushAttribute(groupdn, 'member', memberdn)
+  }
+
+  /**
+   * Use this method to remove a member from a group. memberdn can be an array. each memberdn can be a group or a person.
+   * Any memberdn entries that are not already members will be ignored.
+   */
+  async removeMember (memberdn: string|string[], groupdn: string) {
+    return await this.pullAttribute(groupdn, 'member', memberdn)
   }
 
   protected templateLiteralEscape (regex: RegExp, replacements: any, strings: TemplateStringsArray, values: (string | number)[]) {

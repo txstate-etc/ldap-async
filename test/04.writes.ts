@@ -36,4 +36,9 @@ describe('write tests', () => {
       expect(e.message).not.to.be.undefined
     }
   })
+  it('should be able to rename an object', async () => {
+    await ldap.modifyDN('cn=Bender Bending Rodríguez,ou=people,dc=planetexpress,dc=com', 'cn=Bender Bending Rodrígo')
+    const after = await ldap.get('cn=Bender Bending Rodrígo,ou=people,dc=planetexpress,dc=com')
+    expect(after.cn).to.equal('Bender Bending Rodrígo')
+  })
 })

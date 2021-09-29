@@ -76,7 +76,17 @@ console.log(person) // { givenName: 'John', ... }
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
 console.log(people) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
 
+// write operations
 await ldap.setAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', 'newemail@company.com')
+await ldap.pushAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', 'newemail@company.com')
+await ldap.pullAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', ['newemail@company.com'])
+await ldap.add('cn=you,ou=people,dc=yourdomain,dc=com', { /* a person record */ })
+await ldap.remove('cn=you,ou=people,dc=yourdomain,dc=com')
+await ldap.modifyDN('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourself')
+
+// special group membership functions
+await ldap.addMember('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
+await ldap.removeMember('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
 ```
 ## Escaping
 When you construct LDAP search query strings, it's important to escape any input strings to prevent injection attacks. LDAP has two kinds of strings with different escaping requirements, so we provide a template literal helper for each.
