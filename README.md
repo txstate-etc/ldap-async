@@ -67,7 +67,7 @@ const ldap = require('ldap-async/client').default
 ```
 # Basic Usage
 Convenience methods are provided that allow you to specify the kind of operation you are about
-to do and the type of return data you expect. For now only get, search, and setAttribute are implemented.
+to do and the type of return data you expect.
 ## Querying
 ```javascript
 const person = await ldap.get('cn=you,ou=people,dc=yourdomain,dc=com')
