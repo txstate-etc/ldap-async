@@ -195,7 +195,7 @@ export default class Ldap {
 
         result.on('searchEntry', data => {
           if (canceled) return
-          if (!stream.push(data.object)) paused = true
+          if (!stream.push({ ...data.object, _raw: data.raw })) paused = true
         })
 
         result.on('page', (result, cb) => {
