@@ -154,6 +154,18 @@ for await (const person of stream) {
 Since `.stream()` returns a `Readable` in object mode, you can easily do other things with
 it like `.pipe()` it to another stream processor. When using the stream without `for await`, you must call `stream.destroy()` if you do not want to finish processing it and carefully use `try {} finally {}` to destroy it in case your code throws an error. Failure to do so will leak a connection from the pool.
 
+## Binary data
+Some LDAP services store binary data as properties of records (e.g. user profile photos), but the ldapjs library assumes that all properties are UTF8 strings and will mangle the binary data. To work around this
+issue, we provide the raw data inside the property `_raw`. For example, to convert profile photos to data URLs, you could do something like this:
+
+```typescript
+const user = await ldap.get(userDn)
+const convertedUser = {
+  ...user,
+  jpegPhoto: `data:image/jpeg;base64,${Buffer.from(user._raw.jpegPhoto).toString('base64')}`,
+}
+```
+
 ## Typescript
 This library is written in typescript and provides its own types. For added convenience, methods that return
 objects will accept a generic so that you can specify the return type you expect:
