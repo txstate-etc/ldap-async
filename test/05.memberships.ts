@@ -12,7 +12,6 @@ const testGrpDN = 'cn=test_group,ou=people,dc=planetexpress,dc=com'
 describe('group membership tests', () => {
   it('should be able to add a member to a group', async () => {
     const before = await ldap.get(crewDN)
-    console.log(before)
     expect(before.member).not.to.include(amyDN)
     await ldap.addMember(amyDN, crewDN)
     const after = await ldap.get(crewDN)
@@ -46,5 +45,18 @@ describe('group membership tests', () => {
     await ldap.addMember(fryDN, testGrpDN)
     const after = await ldap.get(testGrpDN)
     expect(after.member).to.include(fryDN)
+  })
+  it('should be able to add and remove a second member to/from the group', async () => {
+    await ldap.addMember(amyDN, testGrpDN)
+    const afterAdd = await ldap.get(testGrpDN)
+    expect(afterAdd.member).to.include(amyDN)
+    await ldap.removeMember(amyDN, testGrpDN)
+    const afterRemove = await ldap.get(testGrpDN)
+    expect(afterRemove.member).not.to.include(amyDN)
+  })
+  it('should be able to remove the last member from a group', async () => {
+    await ldap.removeMember(fryDN, testGrpDN)
+    const after = await ldap.get(testGrpDN)
+    expect(after.member).to.be.undefined
   })
 })

@@ -11,5 +11,3 @@ services:
       - openldap
   openldap:
     image: rroemhild/test-openldap
-    logging:
-      driver: none

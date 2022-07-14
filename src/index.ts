@@ -4,8 +4,8 @@ import { Readable, finished } from 'stream'
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
 interface StreamIterator <T> {
   [Symbol.asyncIterator]: () => StreamIterator<T>
-  next: () => Promise<{ done: boolean, value: T }>
-  return: () => Promise<{ done: boolean, value: T }>
+  next: () => Promise<{ done?: false, value: T }>
+  return: () => Promise<{ done: true, value: T }>
 }
 interface GenericReadable<T> extends Readable {
   [Symbol.asyncIterator]: () => StreamIterator<T>
@@ -292,7 +292,10 @@ export default class Ldap {
   async pushAttribute (dn: string, attribute: string, valueOrValues: string|string[]) {
     const values = Array.isArray(valueOrValues) ? valueOrValues : [valueOrValues]
     const current = await this.get(dn)
-    const existingValues = new Set(current[attribute] ?? [])
+    // the ldap client only returns an array when there are 2 or more elements
+    // if there is only one element, it comes back as a scalar
+    const attr = current[attribute] ?? []
+    const existingValues = new Set(Array.isArray(attr) ? attr : [attr])
     const newValues = values.filter(v => !existingValues.has(v))
     if (newValues.length === 0) return true
     return await this.modify(dn, 'add', { [attribute]: newValues })
@@ -306,7 +309,10 @@ export default class Ldap {
   async pullAttribute (dn: string, attribute: string, valueOrValues: string|string[]) {
     const values = Array.isArray(valueOrValues) ? valueOrValues : [valueOrValues]
     const current = await this.get(dn)
-    const existingValues = new Set(current[attribute] ?? [])
+    // the ldap client only returns an array when there are 2 or more elements
+    // if there is only one element, it comes back as a scalar
+    const attr = current[attribute] ?? []
+    const existingValues = new Set(Array.isArray(attr) ? attr : [attr])
     const oldValues = values.filter(v => existingValues.has(v))
     if (oldValues.length === 0) return true
     return await this.modify(dn, 'delete', { [attribute]: oldValues })
