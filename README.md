@@ -77,11 +77,25 @@ const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub
 console.log(people) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
 
 // write operations
+// change the value of a single attribute on a record
 await ldap.setAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', 'newemail@company.com')
+
+// change the value of multiple attributes in one round trip
+await ldap.setAttributes('cn=you,ou=people,dc=yourdomain,dc=com', { email: 'newemail@company.com', sn: 'Smith' })
+
+// pushes value onto an array attribute unless it's already there
 await ldap.pushAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', 'newemail@company.com')
+
+// remove a value from an array attribute (returns true without doing anything if value wasn't there)
 await ldap.pullAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', ['newemail@company.com'])
+
+// add a full record
 await ldap.add('cn=you,ou=people,dc=yourdomain,dc=com', { /* a person record */ })
+
+// remove a full record
 await ldap.remove('cn=you,ou=people,dc=yourdomain,dc=com')
+
+// rename a record
 await ldap.modifyDN('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourself')
 
 // special group membership functions

@@ -36,6 +36,22 @@ describe('write tests', () => {
       expect(e.message).not.to.be.undefined
     }
   })
+  it('should be able to modify multiple attributes at once', async () => {
+    await ldap.modify(fryDN, [
+      { operation: 'replace', modification: { description: 'Human-ish' } },
+      { operation: 'replace', modification: { givenName: 'Filip' } }
+    ])
+    const after = await ldap.get(fryDN)
+    expect(after.description).to.equal('Human-ish')
+    expect(after.givenName).to.equal('Filip')
+    await ldap.setAttributes(fryDN, {
+      description: 'Human',
+      givenName: 'Philip'
+    })
+    const final = await ldap.get(fryDN)
+    expect(final.description).to.equal('Human')
+    expect(final.givenName).to.equal('Philip')
+  })
   it('should be able to rename an object', async () => {
     await ldap.modifyDN('cn=Bender Bending Rodríguez,ou=people,dc=planetexpress,dc=com', 'cn=Bender Bending Rodrígo')
     const after = await ldap.get('cn=Bender Bending Rodrígo,ou=people,dc=planetexpress,dc=com')

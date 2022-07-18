@@ -22,6 +22,11 @@ interface LdapClient extends Client {
   busy?: boolean
 }
 
+export interface LdapChange {
+  operation: string
+  modification: any
+}
+
 const filterReplacements = {
   '\0': '\\00',
   '(': '\\28',
@@ -232,9 +237,14 @@ export default class Ldap {
    * or pullAttribute instead, or addMember/removeMember to manage group memberships. These
    * methods add extra convenience.
    */
-  async modify (dn: string, operation: string, modification: any) {
+  async modify (dn: string, operation: string, modification: any): Promise<Boolean>
+  async modify (dn: string, changes: Change[]): Promise<boolean>
+  async modify (dn: string, operationOrChanges: string | LdapChange[], modification?: any) {
+    const changes = Array.isArray(operationOrChanges)
+      ? operationOrChanges.map(c => new Change(c))
+      : [new Change({ operation: operationOrChanges, modification })]
     return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
-      client.modify(dn, new Change({ operation, modification }), err => {
+      client.modify(dn, changes, err => {
         if (err) reject(err)
         else resolve(true)
       })
@@ -283,6 +293,18 @@ export default class Ldap {
    */
   async setAttribute (dn: string, attribute: string, value: any) {
     return await this.modify(dn, 'replace', { [attribute]: value })
+  }
+
+  /**
+   * Use this method to completely replace multiple attributes. If any of the given attributes
+   * are array attributes, any existing values will be lost.
+   *
+   * If you need to mix set and push operations, you can do multiple round trips or you can send
+   * multiple operations to the `modify` method.
+   */
+  async setAttributes (dn: string, modification: Record<string, any>) {
+    const changes = Object.entries(modification).map(([attr, val]) => ({ operation: 'replace', modification: { [attr]: val } }))
+    return await this.modify(dn, changes)
   }
 
   /**
