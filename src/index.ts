@@ -340,6 +340,10 @@ export default class Ldap {
     return await this.modify(dn, 'delete', { [attribute]: oldValues })
   }
 
+  async removeAttribute (dn: string, attribute: string) {
+    return await this.modify(dn, 'delete', { [attribute]: undefined })
+  }
+
   /**
    * Use this method to add a member to a group. memberdn can be an array. each memberdn can be a group or a person.
    * Any memberdn entries that are already members will be ignored.

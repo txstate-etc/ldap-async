@@ -25,7 +25,12 @@ describe('write tests', () => {
   it('should be able to delete an attribute', async () => {
     await ldap.setAttribute(fryDN, 'employeeType', undefined)
     const after = await ldap.get(fryDN)
-    expect(Object.keys(after)).to.not.include('employeeType')
+    expect(Object.keys(after)).not.to.include('employeeType')
+  })
+  it('should be able to delete an attribute with removeAttribute', async () => {
+    await ldap.removeAttribute(amyDN, 'employeeType')
+    const after = await ldap.get(amyDN)
+    expect(Object.keys(after)).not.to.include('employeeType')
   })
   it('should throw an error when trying to set an attribute that is not in the schema', async () => {
     try {

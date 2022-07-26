@@ -75,8 +75,9 @@ console.log(person) // { givenName: 'John', ... }
 
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
 console.log(people) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
-
-// write operations
+```
+## Writing
+```javascript
 // change the value of a single attribute on a record
 await ldap.setAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', 'newemail@company.com')
 
@@ -89,13 +90,16 @@ await ldap.pushAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', 'newe
 // remove a value from an array attribute (returns true without doing anything if value wasn't there)
 await ldap.pullAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'email', ['newemail@company.com'])
 
+// remove an attribute entirely
+await ldap.removeAttribute('cn=you,ou=people,dc=yourdomain,dc=com', 'customAttr')
+
 // add a full record
 await ldap.add('cn=you,ou=people,dc=yourdomain,dc=com', { /* a person record */ })
 
 // remove a full record
 await ldap.remove('cn=you,ou=people,dc=yourdomain,dc=com')
 
-// rename a record
+// rename a record (in this example only the cn changes, the ou,dc entries are preserved)
 await ldap.modifyDN('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourself')
 
 // special group membership functions
