@@ -21,7 +21,7 @@
   "scripts": {
     "prepublishOnly": "npm run build",
     "build": "rm -rf dist && tsc",
-    "mocha": "mocha -r ts-node/register test/**/*.ts --exit",
+    "mocha": "mocha -r ts-node/register test/**/*.ts",
     "test": "./test.sh"
   },
   "dependencies": {

@@ -184,6 +184,9 @@ const convertedUser = {
 }
 ```
 
+## Close the pool
+Generally you want to let the pool do its thing for the entire life of your process, but if you are sure you're done with it, you can call `await client.close()` and it will wait for all existing requests to finish, then empty the pool so that everything can be garbage collected. The pool is still valid, so if you make another request, the pool will open back up and work normally.
+
 ## Typescript
 This library is written in typescript and provides its own types. For added convenience, methods that return
 objects will accept a generic so that you can specify the return type you expect:

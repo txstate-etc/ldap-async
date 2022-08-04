@@ -56,6 +56,7 @@ export default class Ldap {
   protected bindDN: string
   protected bindCredentials: string
   protected poolQueue: ((client: LdapClient) => void)[]
+  protected closeRequest?: Function
 
   constructor (config: LdapConfig = {}) {
     if (!config.url) {
@@ -138,6 +139,19 @@ export default class Ldap {
     client.busy = false
     const nextInQueue = this.poolQueue.shift()
     if (nextInQueue) nextInQueue(client)
+    else if (this.clients.every(c => !c.busy)) this.closeRequest?.()
+  }
+
+  async close () {
+    if (this.closeRequest) return
+    if (this.clients.some(c => c.busy)) {
+      await new Promise(resolve => {
+        this.closeRequest = resolve
+      })
+      this.closeRequest = undefined
+    }
+    for (const client of this.clients) client.unbind()
+    this.clients = []
   }
 
   async wait () {
