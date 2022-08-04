@@ -325,7 +325,7 @@ export default class Ldap {
    * Use this method to add more values to an array attribute without removing any existing values. Any
    * values that already exist will be ignored (if you used a raw 'modify' operation, you'd get an error).
    */
-  async pushAttribute (dn: string, attribute: string, valueOrValues: string|string[]) {
+  async pushAttribute (dn: string, attribute: string, valueOrValues: string | string[]) {
     const values = Array.isArray(valueOrValues) ? valueOrValues : [valueOrValues]
     const current = await this.get(dn)
     // the ldap client only returns an array when there are 2 or more elements
@@ -342,7 +342,7 @@ export default class Ldap {
    * values in place. Any values that don't already exist will be ignored (if you used a raw 'modify'
    * operation, you'd get an error).
    */
-  async pullAttribute (dn: string, attribute: string, valueOrValues: string|string[]) {
+  async pullAttribute (dn: string, attribute: string, valueOrValues: string | string[]) {
     const values = Array.isArray(valueOrValues) ? valueOrValues : [valueOrValues]
     const current = await this.get(dn)
     // the ldap client only returns an array when there are 2 or more elements
@@ -362,7 +362,7 @@ export default class Ldap {
    * Use this method to add a member to a group. memberdn can be an array. each memberdn can be a group or a person.
    * Any memberdn entries that are already members will be ignored.
    */
-  async addMember (memberdn: string|string[], groupdn: string) {
+  async addMember (memberdn: string | string[], groupdn: string) {
     return await this.pushAttribute(groupdn, 'member', memberdn)
   }
 
@@ -370,7 +370,7 @@ export default class Ldap {
    * Use this method to remove a member from a group. memberdn can be an array. each memberdn can be a group or a person.
    * Any memberdn entries that are not already members will be ignored.
    */
-  async removeMember (memberdn: string|string[], groupdn: string) {
+  async removeMember (memberdn: string | string[], groupdn: string) {
     return await this.pullAttribute(groupdn, 'member', memberdn)
   }
 
@@ -413,7 +413,7 @@ export default class Ldap {
       : `(&${Object.entries(values).map(([k, v]) => this.filter`(${k}=${v})`).join('')})`
   }
 
-  anyall (values: Record<string, string|number>[], wildcards = false) {
+  anyall (values: Record<string, string | number>[], wildcards = false) {
     return wildcards
       ? `(|${values.map(v => `(&${Object.entries(v).map(([prop, val]) => this.filterAllowWildcard`(${prop}=${val})`).join('')})`).join('')})`
       : `(|${values.map(v => `(&${Object.entries(v).map(([prop, val]) => this.filter`(${prop}=${val})`).join('')})`).join('')})`
