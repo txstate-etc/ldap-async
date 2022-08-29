@@ -96,8 +96,10 @@ export default class Ldap {
           client.removeAllListeners('error')
           client.removeAllListeners('connectError')
           client.removeAllListeners('setupError')
+          client.on('error', e => reject(e))
           client.bind(this.bindDN, this.bindCredentials, err => {
-            if (err) reject(err)
+            if (err) return reject(err)
+            client.removeAllListeners('error')
             client.on('error', e => console.warn('Caught an error on ldap client, it is probably a connection problem that will auto-reconnect.', e.message))
             resolve(client)
           })
@@ -113,6 +115,7 @@ export default class Ldap {
         })
       })
     } catch (e) {
+      client.destroy()
       this.clients = this.clients.filter(c => c !== client)
       throw e
     }
