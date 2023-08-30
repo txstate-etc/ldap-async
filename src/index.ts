@@ -185,9 +185,11 @@ export default class Ldap {
   }
 
   stream<T = any> (base: string, options: SearchOptions = {}, controls?: Control | Array<Control>) {
-    if (!options.paged || options.paged === true) options.paged = {}
-    if (!options.paged.pageSize) options.paged.pageSize = 200
-    options.paged.pagePause = true
+    if (options.paged === undefined) options.paged = {}
+    if (typeof (options.paged) === 'object') {
+      if (!options.paged.pageSize) options.paged.pageSize = 200
+      if (!options.paged.pagePause) options.paged.pagePause = true
+    }
     let unpause: Function | undefined
     let paused = true
     let canceled = false
