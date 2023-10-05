@@ -175,10 +175,10 @@ export default class Ldap {
         const client = await this.getClient()
         this.release(client)
       } catch (e) {
-        if (loops++ < 2) console.warn('Unable to connect to LDAP. Trying again in 2 seconds.')
+        if (loops++ < 2) this.console.warn('Unable to connect to LDAP. Trying again in 2 seconds.')
         else if (typeof this.config.reconnect === 'object' && loops > (this.config.reconnect.failAfter! / 2000)) {
           throw new Error('Unable to connect to LDAP after ' + (loops * 2) + ' seconds.')
-        } else console.error('Unable to connect to LDAP. Trying again in 2 seconds.')
+        } else this.console.error('Unable to connect to LDAP. Trying again in 2 seconds.')
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
     }
@@ -254,7 +254,7 @@ export default class Ldap {
 
         result.on('searchEntry', data => {
           if (canceled) return
-          if (!stream.push(new LdapEntry(data, this))) paused = true
+          if (!stream.push(new LdapEntry(data))) paused = true
         })
 
         result.on('page', (result, cb) => {
@@ -460,78 +460,64 @@ export default class Ldap {
   }
 }
 
-const binaryAttributes = new Set(['photo', 'personalsignature', 'audio', 'jpegphoto', 'javaserializeddata', 'thumbnaildhoto', 'thumbnaillogo', 'userpassword', 'usercertificate', 'cacertificate', 'authorityrevocationlist', 'certificaterevocationlist', 'crosscertificatepair', 'x500uniqueidentifier'])
-
 export class LdapEntry<T = any> {
   attrs = new Map<string, Attribute>()
-  constructor (data: SearchEntry, protected client: Ldap) {
+  constructor (data: SearchEntry) {
     for (const attr of data.attributes) {
-      const attrWithoutOptions = attr.type.split(';', 2)[0]!.toLocaleLowerCase()
-      this.attrs.set(attrWithoutOptions, attr)
+      this.attrs.set(attr.type, attr)
     }
   }
 
   get (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.values?.[0]
+    return this.attrs.get(attr)?.values?.[0]
   }
 
   one (attr: string) {
-    return this.get(attr.toLocaleLowerCase())
+    return this.get(attr)
   }
 
   first (attr: string) {
-    return this.get(attr.toLocaleLowerCase())
+    return this.get(attr)
   }
 
   all (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.values as string[] ?? []
+    return this.attrs.get(attr)?.values ?? []
   }
 
   buffer (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.buffers?.[0]
+    return this.attrs.get(attr)?.buffers?.[0]
   }
 
   buffers (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.buffers ?? []
+    return this.attrs.get(attr)?.buffers ?? []
   }
 
   binary (attr: string) {
-    return this.buffer(attr.toLocaleLowerCase())
+    return this.buffer(attr)
   }
 
   binaries (attr: string) {
-    return this.buffers(attr.toLocaleLowerCase())
-  }
-
-  isBinary (attr: string) {
-    const lcAttr = attr.toLocaleLowerCase()
-    return binaryAttributes.has(lcAttr) || this.options(lcAttr).includes('binary') || this.attrs.get(lcAttr)?.buffers.some(b => {
-      try {
-        utfDecoder.decode(b)
-        return false
-      } catch {
-        return true
-      }
-    })
-  }
-
-  protected optionsCache: string[] | undefined
-  options (attr: string) {
-    this.optionsCache ??= this.attrs.get(attr.toLocaleLowerCase())?.type.split(';').slice(1)
-    return this.optionsCache ?? []
+    return this.buffers(attr)
   }
 
   toJSON () {
     const obj: Record<string, string | string[] | Buffer | Buffer[]> = {}
     for (const attr of this.attrs.values()) {
       if (attr.buffers.length > 0) {
-        const lcAttr = attr.type.split(';', 2)[0].toLocaleLowerCase()
-        if (this.isBinary(lcAttr)) {
-          if (attr.values.length === 1) obj[lcAttr] = attr.buffers[0].toString('base64')
-          else obj[lcAttr] = attr.buffers.map(b => b.toString('base64'))
+        const isBinary = attr.buffers.some(b => {
+          try {
+            utfDecoder.decode(b)
+            return false
+          } catch {
+            return true
+          }
+        })
+        if (isBinary) {
+          if (attr.values.length === 1) obj[attr.type] = attr.buffers[0].toString('base64')
+          else obj[attr.type] = attr.buffers.map(b => b.toString('base64'))
         } else {
-          if (attr.values.length === 1) obj[lcAttr] = attr.values[0]
-          else obj[lcAttr] = attr.values
+          if (attr.values.length === 1) obj[attr.type] = attr.values[0]
+          else obj[attr.type] = attr.values
         }
       }
     }
@@ -540,24 +526,5 @@ export class LdapEntry<T = any> {
 
   pojo () {
     return this.toJSON()
-  }
-
-  async fullRange (attr: string, base: string) {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    let entry: LdapEntry = this
-    const cn = this.get('cn')!
-    const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
-    const ret: string[] = []
-    while (true) {
-      ret.push(...entry.all(attr))
-      const pageOpt = entry.options(attr).find(o => o.startsWith('range='))
-      if (!pageOpt || pageOpt.endsWith('*') || entry.all(attr).length === 0) return ret
-      const [, rangeStr] = pageOpt.split('=')
-      const [low, high] = rangeStr.split('-').map(Number)
-      const pageSize = 1 + high - low
-      const newLow = high + 1
-      const newHigh = newLow + pageSize - 1
-      entry = (await this.client.load(base, cn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
-    }
   }
 }
