@@ -1,6 +1,6 @@
 {
   "name": "ldap-async",
-  "version": "1.3.3",
+  "version": "2.0.0",
   "description": "A wrapper around ldapjs to provide promises, pooling, config by environment, and other conveniences.",
   "exports": {
     ".": {
@@ -25,19 +25,19 @@
     "test": "./test.sh"
   },
   "dependencies": {
-    "ldapjs": "^2.3.1",
-    "@types/ldapjs": "^2.2.0"
+    "@types/ldapjs": "^3.0.2",
+    "ldapjs": "^3.0.5"
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
-    "@types/mocha": "^9.0.0",
-    "@types/node": "^16.6.1",
+    "@types/mocha": "^10.0.2",
+    "@types/node": "^20.8.2",
     "chai": "^4.2.0",
-    "eslint-config-standard-with-typescript": "^22.0.0",
+    "eslint-config-standard-with-typescript": "^39.0.0",
     "image-size": "^1.0.1",
     "mocha": "^10.0.0",
     "ts-node": "^10.2.0",
-    "typescript": "^4.3.5"
+    "typescript": "^5.2.2"
   },
   "repository": {
     "type": "git",

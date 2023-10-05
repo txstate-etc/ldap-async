@@ -1,6 +1,19 @@
 /* global describe, it */
 import { expect } from 'chai'
 import ldap from '../src/client'
+import { AndFilter, EqualityFilter, Filter } from 'ldapjs'
+
+before(async function () {
+  this.timeout(30000)
+  for (let i = 0; i < 30; i++) {
+    try {
+      await ldap.setAttribute('cn=Bender Bending Rodriguez,ou=people,dc=planetexpress,dc=com', 'cn', 'Bender Bending Rodriguez')
+      break
+    } catch (e: any) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  }
+})
 
 describe('basic tests', () => {
   it('should be able to search for all users', async () => {
@@ -15,11 +28,23 @@ describe('basic tests', () => {
       scope: 'sub',
       filter: '(&(objectClass=person)(givenName=Hubert))'
     })
-    expect(user.givenName).to.equal('Hubert')
+    expect(user.one('givenName')).to.equal('Hubert')
+  })
+  it('should be able to search for a single user with the Filters API', async () => {
+    const user = await ldap.get<{ givenName: string }>('ou=people,dc=planetexpress,dc=com', {
+      scope: 'sub',
+      filter: new AndFilter({
+        filters: [
+          new EqualityFilter({ attribute: 'objectClass', value: 'person' }),
+          new EqualityFilter({ attribute: 'givenName', value: 'Hubert' })
+        ]
+      })
+    })
+    expect(user.one('givenName')).to.equal('Hubert')
   })
   it('should be able to retrieve a single person by DN', async () => {
     const user = await ldap.get<{ givenName: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
-    expect(user.givenName).to.equal('Philip')
+    expect(user.one('givenName')).to.equal('Philip')
   })
   it('should be able to search for all groups', async () => {
     const users = await ldap.search('ou=people,dc=planetexpress,dc=com', {

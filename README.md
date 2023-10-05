@@ -4,6 +4,11 @@ This library is a wrapper around [ldapjs](http://ldapjs.org/) providing convenie
 * Always use a connection pool
 * Hide everything having to do with acquiring/releasing connections
 * Provide an easy way to configure with environment variables
+* Provide lots of convenience methods and restructure return data for easier lookups
+
+# Upgrade from v1.0 to v2.0
+You WILL have to alter your usage after upgrading to 2.0. The major breaking change is the
+return object from search queries. See the section below titled "Return Object".
 
 # Getting Started
 ## Standard connection
@@ -71,11 +76,26 @@ to do and the type of return data you expect.
 ## Querying
 ```javascript
 const person = await ldap.get('cn=you,ou=people,dc=yourdomain,dc=com')
-console.log(person) // { givenName: 'John', ... }
+console.log(person.toJSON()) // { givenName: 'John', ... }
 
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
-console.log(people) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
+console.log(people.toJSON()) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
 ```
+## Return object
+In ldap-async v2.0 the return object changed to give you greater control over the return type you
+want/expect. Now you get a special LdapEntry class with methods for getting the entry attributes:
+```javascript
+const entry = await ldap.get(... whatever ...)
+entry.get('givenName') // 'John' - you can also use entry.one('givenName') or entry.first('givenName')
+entry.all('givenName') // ['John']
+entry.buffer('givenName') // Buffer.from('John', 'utf8')
+entry.buffers('givenName') // [Buffer.from('John', 'utf8')]
+```
+If you want something more like the ldap-async v1.0 return object, use the `.toJSON()` method. You'll
+get back an object with attribute names as the keys and the values will be a mixture of string and
+string[]. Attributes with only one value will be `string`, attributes with multiple values will
+be `string[]`. Attributes with at least one value that is not valid UTF-8 (usually binaries
+like image data) will be base64 encoded strings.
 ## Writing
 ```javascript
 // change the value of a single attribute on a record
@@ -155,6 +175,16 @@ Note that `any`, `all` and `anyall` can accept an optional `wildcard` parameter 
   ldap.all({ givenName: 'John', sn: 'S*' }, true)
   // => '(&(givenName=John)(sn=S*))
   ```
+## ldapjs 3.0 Filters API
+ldapjs added a "Filters API" in their 3.0 version that helps you create (and parse) filters. You're free to use that instead of the
+filter helpers provided by ldap-async. Just make a filter object with their Filters API and give it to any appropriate method in ldap-async:
+```javascript
+const people = await ldap.search('ou=people,dc=yourdomain,dc=com', {
+  scope: 'sub',
+  filter: new EqualityFilter({ attribute: 'givenName', value: n })
+})
+```
+For more information, see the [Filters API documentation](http://ldapjs.org/filters.html).
 # Advanced Usage
 ## Streaming
 To avoid using too much memory on huge datasets, we provide a `stream` method that performs the same as `search` but returns a node `Readable`. It is recommended to use the async iterator pattern:
@@ -173,14 +203,17 @@ Since `.stream()` returns a `Readable` in object mode, you can easily do other t
 it like `.pipe()` it to another stream processor. When using the stream without `for await`, you must call `stream.destroy()` if you do not want to finish processing it and carefully use `try {} finally {}` to destroy it in case your code throws an error. Failure to do so will leak a connection from the pool.
 
 ## Binary data
-Some LDAP services store binary data as properties of records (e.g. user profile photos), but the ldapjs library assumes that all properties are UTF8 strings and will mangle the binary data. To work around this
-issue, we provide the raw data inside the property `_raw`. For example, to convert profile photos to data URLs, you could do something like this:
+Some LDAP services store binary data as properties of records (e.g. user profile photos). In ldap-async v1.0,
+we provided a `_raw` property to work around this, but in v2.0 we support it with the new `LdapEntry` return
+object. So now you simply have to ask for the buffer for the attribute in question.
+
+For example, to convert profile photos to data URLs, you could do something like this:
 
 ```typescript
 const user = await ldap.get(userDn)
 const convertedUser = {
   ...user,
-  jpegPhoto: `data:image/jpeg;base64,${Buffer.from(user._raw.jpegPhoto).toString('base64')}`,
+  jpegPhoto: `data:image/jpeg;base64,${user.buffer('jpegPhoto').toString('base64')}`,
 }
 ```
 
@@ -189,12 +222,12 @@ Generally you want to let the pool do its thing for the entire life of your proc
 
 ## Typescript
 This library is written in typescript and provides its own types. For added convenience, methods that return
-objects will accept a generic so that you can specify the return type you expect:
+objects will accept a generic so that you can specify the return type you expect from the `.toJSON()` method:
 ```typescript
 interface LDAPPerson {
   cn: string
   givenName: string
 }
 const person = ldap.get<LDAPPerson>(ldap.dn`cn=${myCN},ou=people,dc=yourdomain,dc=com`)
-// person will be an LDAPPerson
+// person.toJSON() will be an LDAPPerson
 ```

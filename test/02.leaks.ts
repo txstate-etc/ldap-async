@@ -41,11 +41,11 @@ describe('connection leak tests', () => {
     try {
       const user = await ldap.get<{ givenName: string }>('ou=people,dc=planetexpress,dc=com', {
         scope: 'sub',
-        filter: '(&(objectClass=person)(givenName=Hubert)'
+        filter: '(&(objectClass=person)(=Hubert)'
       })
       expect(true, 'should not have gotten this far').to.be.false
     } catch (e: any) {
-      expect(e.message).to.contain('unbalanced parens')
+      expect(e.message).to.contain('invalid attribute')
     }
     for (const c of (ldap as any).clients) {
       expect(c.busy).to.not.be.true
@@ -72,10 +72,14 @@ describe('connection leak tests', () => {
       })
       let count = 0
       for await (const user of stream) {
-        if (count++ > 3) stream.destroy()
+        if (count++ > 3) {
+          stream.destroy()
+          break
+        }
       }
       expect(count).to.be.greaterThan(3)
     }))
+    await new Promise(resolve => setTimeout(resolve, 250))
     for (const c of (ldap as any).clients) {
       expect(c.busy).to.not.be.true
     }
