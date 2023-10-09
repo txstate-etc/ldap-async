@@ -186,6 +186,28 @@ export default class Ldap {
     return (await this.search<T>(base, options, controls))[0]
   }
 
+  protected loadPairs = new Map<string, Set<string>>()
+  protected loadPromises: Record<string, Promise<Map<string, LdapEntry>> | undefined> = {}
+  async load (base: string, cn: string, attributes?: SearchOptions['attributes']) {
+    const attrKey = JSON.stringify(attributes)
+    if (!this.loadPairs.has(attrKey)) this.loadPairs.set(attrKey, new Set())
+    this.loadPairs.get(attrKey)!.add(cn)
+    this.loadPromises[attrKey] ??= new Promise((resolve, reject) => {
+      setTimeout(() => {
+        this.loadPromises[attrKey] = undefined
+        const CNs = Array.from(this.loadPairs.get(attrKey)!)
+        this.loadPairs.delete(attrKey)
+        this.search(base, { scope: 'sub', filter: this.in(CNs, 'cn'), attributes }).then(results => {
+          const ret = new Map<string, LdapEntry>()
+          for (const entry of results) ret.set(entry.get('cn')!, entry)
+          resolve(ret)
+        }).catch(reject)
+      }, 0)
+    })
+    const entries = await this.loadPromises[attrKey]!
+    return entries.get(cn)
+  }
+
   async search<T = any> (base: string, options?: SearchOptions, controls?: Control | Control[]) {
     const stream = this.stream<T>(base, options, controls)
     const results: LdapEntry<T>[] = []
@@ -230,7 +252,7 @@ export default class Ldap {
 
         result.on('searchEntry', data => {
           if (canceled) return
-          if (!stream.push(new LdapEntry(data))) paused = true
+          if (!stream.push(new LdapEntry(data, this))) paused = true
         })
 
         result.on('page', (result, cb) => {
@@ -440,7 +462,7 @@ const binaryAttributes = new Set(['photo', 'personalsignature', 'audio', 'jpegph
 
 export class LdapEntry<T = any> {
   attrs = new Map<string, Attribute>()
-  constructor (data: SearchEntry) {
+  constructor (data: SearchEntry, protected client: Ldap) {
     for (const attr of data.attributes) {
       const attrWithoutOptions = attr.type.split(';', 2)[0]!.toLocaleLowerCase()
       this.attrs.set(attrWithoutOptions, attr)
@@ -460,7 +482,7 @@ export class LdapEntry<T = any> {
   }
 
   all (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.values ?? []
+    return this.attrs.get(attr.toLocaleLowerCase())?.values as string[] ?? []
   }
 
   buffer (attr: string) {
@@ -516,5 +538,24 @@ export class LdapEntry<T = any> {
 
   pojo () {
     return this.toJSON()
+  }
+
+  async fullRange (attr: string, base: string) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let entry: LdapEntry = this
+    const cn = this.get('cn')!
+    const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
+    const ret: string[] = []
+    while (true) {
+      ret.push(...entry.all(attr))
+      const pageOpt = entry.options(attr).find(o => o.startsWith('range='))
+      if (!pageOpt || pageOpt.endsWith('*') || entry.all(attr).length === 0) return ret
+      const [, rangeStr] = pageOpt.split('=')
+      const [low, high] = rangeStr.split('-').map(Number)
+      const pageSize = 1 + high - low
+      const newLow = high + 1
+      const newHigh = newLow + pageSize - 1
+      entry = (await this.client.load(base, cn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
+    }
   }
 }
