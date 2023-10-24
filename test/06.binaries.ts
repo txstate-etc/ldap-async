@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* global describe, it */
 import { expect } from 'chai'
 import ldap from '../src/client'
@@ -15,8 +16,10 @@ describe('binary tests', () => {
   })
 
   it('should get good binary data', async () => {
-    const user = await ldap.get<{ jpegPhoto: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+    const user = await ldap.get<{ jpegPhoto: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com', { attributes: ['jpegPhoto;range=0-10'] })
     const dim = sizeOf(user.binary('jpegPhoto')!)
     expect(dim.width).to.equal(429)
+    expect(user.options('jpegPhoto')).to.deep.equal(['binary'])
+    expect(user.isBinary('jpegPhoto')).to.be.true
   })
 })
