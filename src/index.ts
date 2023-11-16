@@ -494,6 +494,7 @@ export class LdapEntry<T = any> {
   }
 
   binary (attr: string) {
+    console.log(this.attrs)
     return this.buffer(attr.toLocaleLowerCase())
   }
 
