@@ -175,8 +175,17 @@ export default class Ldap {
         const client = await this.getClient()
         this.release(client)
       } catch (e) {
-        if (loops++ < 2) this.console.warn('Unable to connect to LDAP, trying again in 2 seconds.')
-        else this.console.error('Unable to connect to LDAP. Trying again in 2 seconds.')
+        if (loops++ < 2) {
+          console.log('Unable to connect to LDAP. Trying again in 2 seconds.')
+        } else {
+          if (this.config.reconnect && typeof this.config.reconnect === 'object'
+                && loops >= (this.config.reconnect.failAfter ?? Number.MAX_SAFE_INTEGER)) {
+                  const failAfter = this.config.reconnect.failAfter ?? Number.MAX_SAFE_INTEGER
+                  console.log(`Unable to connect to LDAP. Exiting the wait after reaching failAfter: ${failAfter} limit.`)
+                  break
+          }
+          console.error('Unable to connect to LDAP. Trying again in 2 seconds.')
+        }
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
     }
