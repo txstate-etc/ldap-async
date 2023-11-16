@@ -254,7 +254,7 @@ export default class Ldap {
 
         result.on('searchEntry', data => {
           if (canceled) return
-          if (!stream.push(new LdapEntry(data))) paused = true
+          if (!stream.push(new LdapEntry(data, this))) paused = true
         })
 
         result.on('page', (result, cb) => {
@@ -460,36 +460,39 @@ export default class Ldap {
   }
 }
 
+const binaryAttributes = new Set(['photo', 'personalsignature', 'audio', 'jpegphoto', 'javaserializeddata', 'thumbnaildhoto', 'thumbnaillogo', 'userpassword', 'usercertificate', 'cacertificate', 'authorityrevocationlist', 'certificaterevocationlist', 'crosscertificatepair', 'x500uniqueidentifier'])
+
 export class LdapEntry<T = any> {
   attrs = new Map<string, Attribute>()
-  constructor (data: SearchEntry) {
+  constructor (data: SearchEntry, protected client: Ldap) {
     for (const attr of data.attributes) {
-      this.attrs.set(attr.type, attr)
+      const attrWithoutOptions = attr.type.split(';', 2)[0]!.toLocaleLowerCase()
+      this.attrs.set(attrWithoutOptions, attr)
     }
   }
 
   get (attr: string) {
-    return this.attrs.get(attr)?.values?.[0]
+    return this.attrs.get(attr.toLocaleLowerCase())?.values?.[0]
   }
 
   one (attr: string) {
-    return this.get(attr)
+    return this.get(attr.toLocaleLowerCase())
   }
 
   first (attr: string) {
-    return this.get(attr)
+    return this.get(attr.toLocaleLowerCase())
   }
 
   all (attr: string) {
-    return this.attrs.get(attr)?.values ?? []
+    return this.attrs.get(attr.toLocaleLowerCase())?.values ?? []
   }
 
   buffer (attr: string) {
-    return this.attrs.get(attr)?.buffers?.[0]
+    return this.attrs.get(attr.toLocaleLowerCase())?.buffers?.[0]
   }
 
   buffers (attr: string) {
-    return this.attrs.get(attr)?.buffers ?? []
+    return this.attrs.get(attr.toLocaleLowerCase())?.buffers ?? []
   }
 
   binary (attr: string) {
@@ -500,24 +503,35 @@ export class LdapEntry<T = any> {
     return this.buffers(attr)
   }
 
+  isBinary (attr: string) {
+    const lcAttr = attr.toLocaleLowerCase()
+    return binaryAttributes.has(lcAttr) || this.options(lcAttr).includes('binary') || this.attrs.get(lcAttr)?.buffers.some(b => {
+      try {
+        utfDecoder.decode(b)
+        return false
+      } catch {
+        return true
+      }
+    })
+  }
+
+  protected optionsCache: string[] | undefined
+  options (attr: string) {
+    this.optionsCache ??= this.attrs.get(attr.toLocaleLowerCase())?.type.split(';').slice(1)
+    return this.optionsCache ?? []
+  }
+
   toJSON () {
     const obj: Record<string, string | string[] | Buffer | Buffer[]> = {}
     for (const attr of this.attrs.values()) {
       if (attr.buffers.length > 0) {
-        const isBinary = attr.buffers.some(b => {
-          try {
-            utfDecoder.decode(b)
-            return false
-          } catch {
-            return true
-          }
-        })
-        if (isBinary) {
-          if (attr.values.length === 1) obj[attr.type] = attr.buffers[0].toString('base64')
-          else obj[attr.type] = attr.buffers.map(b => b.toString('base64'))
+        const lcAttr = attr.type.split(';', 2)[0].toLocaleLowerCase()
+        if (this.isBinary(lcAttr)) {
+          if (attr.values.length === 1) obj[lcAttr] = attr.buffers[0].toString('base64')
+          else obj[lcAttr] = attr.buffers.map(b => b.toString('base64'))
         } else {
-          if (attr.values.length === 1) obj[attr.type] = attr.values[0]
-          else obj[attr.type] = attr.values
+          if (attr.values.length === 1) obj[lcAttr] = attr.values[0]
+          else obj[lcAttr] = attr.values
         }
       }
     }
@@ -526,5 +540,24 @@ export class LdapEntry<T = any> {
 
   pojo () {
     return this.toJSON()
+  }
+
+  async fullRange (attr: string, base: string) {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    let entry: LdapEntry = this
+    const cn = this.get('cn')!
+    const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
+    const ret: string[] = []
+    while (true) {
+      ret.push(...entry.all(attr))
+      const pageOpt = entry.options(attr).find(o => o.startsWith('range='))
+      if (!pageOpt || pageOpt.endsWith('*') || entry.all(attr).length === 0) return ret
+      const [, rangeStr] = pageOpt.split('=')
+      const [low, high] = rangeStr.split('-').map(Number)
+      const pageSize = 1 + high - low
+      const newLow = high + 1
+      const newHigh = newLow + pageSize - 1
+      entry = (await this.client.load(base, cn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
+    }
   }
 }
