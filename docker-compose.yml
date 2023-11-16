@@ -5,9 +5,10 @@ services:
       context: .
     environment:
       LDAP_HOST: openldap
+      LDAP_PORT: 10389
       LDAP_DN: cn=admin,dc=planetexpress,dc=com
       LDAP_PASS: GoodNewsEveryone
     depends_on:
       - openldap
   openldap:
-    image: rroemhild/test-openldap
+    image: ghcr.io/rroemhild/docker-test-openldap:master

@@ -1,2 +1,1 @@
-docker compose down
-docker compose up --build --attach ldap-async
+docker compose up --build --force-recreate --attach ldap-async
