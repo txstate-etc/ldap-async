@@ -56,6 +56,13 @@ const dnReplacements = {
 }
 
 const utfDecoder = new TextDecoder('utf8', { fatal: true })
+type ValidAttributeInput = boolean | number | string | Buffer
+
+function valToString (val: any) {
+  if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE'
+  if (typeof val === 'number') return String(val)
+  return val
+}
 
 export default class Ldap {
   protected connectpromise?: Promise<void>
@@ -345,8 +352,9 @@ export default class Ldap {
    * Use this method to completely replace an attribute. If you use it on an array attribute,
    * any existing values will be lost.
    */
-  async setAttribute (dn: string, attribute: string, val: any) {
-    return await this.modify(dn, 'replace', { type: attribute, values: Array.isArray(val) ? val : (val == null ? [] : [val]) })
+  async setAttribute (dn: string, attribute: string, val: ValidAttributeInput | ValidAttributeInput[] | undefined) {
+    const values = (Array.isArray(val) ? val : (val == null ? [] : [val])).map(valToString)
+    return await this.modify(dn, 'replace', { type: attribute, values })
   }
 
   /**
@@ -356,8 +364,8 @@ export default class Ldap {
    * If you need to mix set and push operations, you can do multiple round trips or you can send
    * multiple operations to the `modify` method.
    */
-  async setAttributes (dn: string, modification: Record<string, any>) {
-    const changes = Object.entries(modification).map(([attr, val]) => ({ operation: 'replace', modification: { type: attr, values: Array.isArray(val) ? val : (val == null ? [] : [val]) } }))
+  async setAttributes (dn: string, modification: Record<string, ValidAttributeInput | ValidAttributeInput[] | undefined>) {
+    const changes = Object.entries(modification).map(([attr, val]) => ({ operation: 'replace', modification: { type: attr, values: (Array.isArray(val) ? val : (val == null ? [] : [val])).map(valToString) } }))
     return await this.modify(dn, changes)
   }
 

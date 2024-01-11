@@ -22,6 +22,26 @@ describe('write tests', () => {
     const after = await ldap.get(amyDN)
     expect(after.one('employeeType')).to.equal('Hangin around')
   })
+  it('should be able to set an attribute to a number', async () => {
+    await ldap.setAttribute(amyDN, 'employeeType', 10)
+    const after = await ldap.get(amyDN)
+    expect(after.one('employeeType')).to.equal('10')
+  })
+  it('should be able to set an attribute to a number with setAttributes', async () => {
+    await ldap.setAttributes(amyDN, { employeeType: 10 })
+    const after = await ldap.get(amyDN)
+    expect(after.one('employeeType')).to.equal('10')
+  })
+  it('should error when setting an attribute that does not exist in the schema', async () => {
+    try {
+      await ldap.setAttribute(amyDN, 'notInSchema', 'blah')
+      expect.fail('Should have thrown.')
+    } catch (e: any) {
+      expect(e.message.toLocaleLowerCase()).to.include('undefined attribute type')
+    }
+    const after = await ldap.get(amyDN)
+    expect(after.one('notInSchema')).to.be.undefined
+  })
   it('should be able to delete an attribute', async () => {
     await ldap.setAttribute(fryDN, 'employeeType', undefined)
     const after = await ldap.get(fryDN)

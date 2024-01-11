@@ -1,6 +1,6 @@
 {
   "name": "ldap-async",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A wrapper around ldapjs to provide promises, pooling, config by environment, and other conveniences.",
   "exports": {
     ".": {
