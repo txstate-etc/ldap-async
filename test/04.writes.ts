@@ -81,5 +81,36 @@ describe('write tests', () => {
     await ldap.modifyDN('cn=Bender Bending Rodriguez,ou=people,dc=planetexpress,dc=com', 'cn=Bender Bending Rodrígo')
     const after = await ldap.get('cn=Bender Bending Rodrígo,ou=people,dc=planetexpress,dc=com')
     expect(after.one('cn')).to.equal('Bender Bending Rodrígo')
+    await ldap.modifyDN('cn=Bender Bending Rodrígo,ou=people,dc=planetexpress,dc=com', 'cn=Bender Bending Rodríguez')
+    const after2 = await ldap.get('cn=Bender Bending Rodríguez,ou=people,dc=planetexpress,dc=com')
+    expect(after2.one('cn')).to.equal('Bender Bending Rodríguez')
+  })
+  it('should be able to add a person', async () => {
+    await ldap.add('cn=Scruffy Scruffington,ou=people,dc=planetexpress,dc=com', {
+      objectClass: ['inetOrgPerson', 'organizationalPerson', 'person', 'top'],
+      cn: 'Scruffy Scruffington',
+      sn: 'Scruffington',
+      employeeType: 'Janitor',
+      description: 'Human',
+      givenName: 'Scruffy',
+      mail: 'scruffy@planetexpress.com',
+      ou: 'Service Staff',
+      uid: 'scruffy',
+      userPassword: 'vote'
+    })
+    const scruffy = await ldap.get('cn=Scruffy Scruffington,ou=people,dc=planetexpress,dc=com')
+    expect(scruffy.all('ou')).to.include('Service Staff')
+  })
+  it('should be able to add a group', async () => {
+    await ldap.add('cn=service_staff,ou=people,dc=planetexpress,dc=com', {
+      objectClass: 'Group',
+      groupType: '2147483648',
+      cn: 'service_staff',
+      member: [
+        'cn=Scruffy Scruffington,ou=people,dc=planetexpress,dc=com'
+      ]
+    })
+    const group = await ldap.get('cn=service_staff,ou=people,dc=planetexpress,dc=com')
+    expect(group.all('member')).to.have.lengthOf(1)
   })
 })

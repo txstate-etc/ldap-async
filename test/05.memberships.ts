@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 /* global describe, it */
 import { expect } from 'chai'
-import { UndefinedAttributeTypeError } from 'ldapjs'
 import ldap from '../src/client'
+import { type LdapEntry } from '../src'
 
 const fryDN = 'cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com'
 const amyDN = 'cn=Amy Wong+sn=Kroker,ou=people,dc=planetexpress,dc=com'
@@ -59,5 +59,22 @@ describe('group membership tests', () => {
     await ldap.removeMember(fryDN, testGrpDN)
     const after = await ldap.get(testGrpDN)
     expect(after.all('member')).to.have.lengthOf(0)
+  })
+  it('should be able to add a group to a group', async () => {
+    await ldap.pushAttribute('cn=ship_crew,ou=people,dc=planetexpress,dc=com', 'member', 'cn=service_staff,ou=people,dc=planetexpress,dc=com')
+    const group = await ldap.get('cn=ship_crew,ou=people,dc=planetexpress,dc=com')
+    expect(group.all('member')).to.include('cn=service_staff,ou=people,dc=planetexpress,dc=com')
+  })
+  it('should be able to stream members of a group', async () => {
+    const strm = ldap.getMemberStream('cn=ship_crew,ou=people,dc=planetexpress,dc=com')
+    const members: LdapEntry[] = []
+    for await (const m of strm) {
+      members.push(m)
+    }
+    expect(members.map(m => m.one('givenname'))).to.include('Scruffy')
+    expect(members.map(m => m.one('givenname'))).to.include('Leela')
+    expect(members.map(m => m.one('givenname'))).to.include('Philip')
+    expect(members.map(m => m.one('givenname'))).to.include('Bender')
+    expect(members).to.have.lengthOf(4)
   })
 })

@@ -125,6 +125,9 @@ await ldap.modifyDN('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourself')
 // special group membership functions
 await ldap.addMember('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
 await ldap.removeMember('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
+
+// return full LdapEntry objects for members of a group and members of all subgroups
+await ldap.getMembers('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
 ```
 ## Escaping
 When you construct LDAP search query strings, it's important to escape any input strings to prevent injection attacks. LDAP has two kinds of strings with different escaping requirements, so we provide a template literal helper for each.

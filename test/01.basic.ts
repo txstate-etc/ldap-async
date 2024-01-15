@@ -47,11 +47,19 @@ describe('basic tests', () => {
     expect(user.one('givenName')).to.equal('Philip')
   })
   it('should be able to search for all groups', async () => {
-    const users = await ldap.search('ou=people,dc=planetexpress,dc=com', {
+    const groups = await ldap.search('ou=people,dc=planetexpress,dc=com', {
       scope: 'sub',
       filter: 'objectClass=group'
     })
-    expect(users).to.have.lengthOf(2)
+    expect(groups).to.have.lengthOf(2)
+  })
+  it('should be able to get all members of multiple groups', async () => {
+    const groups = await ldap.search('ou=people,dc=planetexpress,dc=com', {
+      scope: 'sub',
+      filter: 'objectClass=group'
+    })
+    const members = await Promise.all(groups.map(async g => await g.fullRange('member')))
+    for (const m of members) expect(m.length).to.be.greaterThan(0)
   })
   it('should be able to stream the response', async () => {
     const stream = ldap.stream('ou=people,dc=planetexpress,dc=com', {

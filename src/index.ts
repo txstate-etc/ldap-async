@@ -1,4 +1,4 @@
-import { Change, type Client, type ClientOptions, type Control, createClient, type SearchOptions, type SearchEntry, type Attribute } from 'ldapjs'
+import { Change, type Client, type ClientOptions, type Control, createClient, type SearchOptions, type SearchEntry, type Attribute, EqualityFilter, type Filter, OrFilter } from 'ldapjs'
 import { TextDecoder } from 'node:util'
 import { Readable, finished } from 'stream'
 
@@ -62,6 +62,37 @@ function valToString (val: any) {
   if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE'
   if (typeof val === 'number') return String(val)
   return val
+}
+
+function searchForDN (dn: string) {
+  const [first, ...restComponents] = dn.split(/(?<!\\),/)
+  const basedn = restComponents.join(',')
+  const [attr, ...restVal] = first.split(/=/)
+  const val = restVal.join('=').replace(/(?<!\\)\\/, '').replace(/\\\\/, '\\')
+  return { basedn, attr, val }
+}
+
+export function batch<T = any> (input: T[], batchLimit = 100) {
+  const ret: T[][] = []
+  if (!input?.length) return [[]]
+  for (let i = 0; i < input.length; i += batchLimit) {
+    ret.push(input.slice(i, i + batchLimit))
+  }
+  return ret
+}
+
+function batchOnBase (searches: { basedn: string, attr: string, val: string }[], batchLimit = 100) {
+  const store: Record<string, Filter[]> = {}
+  for (const s of searches) {
+    store[s.basedn] ??= []
+    store[s.basedn].push(new EqualityFilter({ attribute: s.attr, value: s.val }))
+  }
+  const ret: Record<string, Filter[]> = {}
+  for (const basedn of Object.keys(store)) {
+    const batches = batch(store[basedn], batchLimit)
+    ret[basedn] = batches.map(filters => new OrFilter({ filters }))
+  }
+  return ret
 }
 
 export default class Ldap {
@@ -197,24 +228,29 @@ export default class Ldap {
 
   protected loadPairs = new Map<string, Set<string>>()
   protected loadPromises: Record<string, Promise<Map<string, LdapEntry>> | undefined> = {}
-  async load (base: string, cn: string, attributes?: SearchOptions['attributes']) {
-    const attrKey = JSON.stringify(attributes)
+  async load (dn: string, attributes?: SearchOptions['attributes']) {
+    const { basedn, attr, val } = searchForDN(dn)
+    const attrKey = JSON.stringify(attributes) + basedn
     if (!this.loadPairs.has(attrKey)) this.loadPairs.set(attrKey, new Set())
-    this.loadPairs.get(attrKey)!.add(cn)
+    this.loadPairs.get(attrKey)!.add(this.filter`(${attr}=${val})`)
     this.loadPromises[attrKey] ??= new Promise((resolve, reject) => {
       setTimeout(() => {
         this.loadPromises[attrKey] = undefined
-        const CNs = Array.from(this.loadPairs.get(attrKey)!)
+        const filters = Array.from(this.loadPairs.get(attrKey)!)
         this.loadPairs.delete(attrKey)
-        this.search(base, { scope: 'sub', filter: this.in(CNs, 'cn'), attributes }).then(results => {
-          const ret = new Map<string, LdapEntry>()
-          for (const entry of results) ret.set(entry.get('cn')!, entry)
-          resolve(ret)
-        }).catch(reject)
+        const ret = new Map<string, LdapEntry>()
+        const batches = batch(filters)
+        const promises: Promise<void>[] = []
+        for (const filters of batches) {
+          promises.push(this.search(basedn, { scope: 'sub', filter: `(|${filters.join('')})`, attributes }).then(results => {
+            for (const entry of results) ret.set(entry.get('dn')!, entry)
+          }))
+        }
+        Promise.all(promises).then(() => { resolve(ret) }).catch(reject)
       }, 0)
     })
     const entries = await this.loadPromises[attrKey]!
-    return entries.get(cn)
+    return entries.get(dn)
   }
 
   async search<T = any> (base: string, options?: SearchOptions, controls?: Control | Control[]) {
@@ -422,6 +458,56 @@ export default class Ldap {
     return await this.pullAttribute(groupdn, 'member', memberdn)
   }
 
+  private async getMemberRecur (ret: Readable, g: LdapEntry, groupsExplored: Set<string>) {
+    const members = await g.fullRange('member')
+    const batchMap = batchOnBase(members.map(searchForDN))
+    const groups: LdapEntry[] = []
+    for (const [basedn, batches] of Object.entries(batchMap)) {
+      for (const filter of batches) {
+        const strm = this.stream(basedn, { scope: 'sub', filter })
+        for await (const m of strm) {
+          const isGroup = m.one('member') != null
+          if (isGroup) groups.push(m)
+          else {
+            const feedme = ret.push(m)
+            if (!feedme) {
+              await new Promise(resolve => {
+                ret.on('resume', () => {
+                  ret.removeAllListeners('resume')
+                  resolve(undefined)
+                })
+              })
+            }
+          }
+        }
+      }
+    }
+    for (const sg of groups) {
+      const dn = sg.one('dn')!
+      if (!groupsExplored.has(dn)) {
+        groupsExplored.add(dn)
+        await this.getMemberRecur(ret, sg, groupsExplored)
+      }
+    }
+  }
+
+  getMemberStream<T = any> (groupdn: string) {
+    const ret = new Readable({ objectMode: true, highWaterMark: 100 }) as GenericReadable<LdapEntry<T>>
+    ret._read = () => {}
+    this.get(groupdn).then(async g => {
+      await this.getMemberRecur(ret, g, new Set(groupdn))
+      ret.push(null)
+    }).catch(e => ret.destroy(e))
+    return ret
+  }
+
+  async getMembers<T = any> (groupdn: string) {
+    const strm = this.getMemberStream<T>(groupdn)
+    const members: LdapEntry<T>[] = []
+    for await (const m of strm) members.push(m)
+    return members
+  }
+
   protected templateLiteralEscape (regex: RegExp, replacements: any, strings: TemplateStringsArray, values: (string | number)[]) {
     let safe = ''
     for (let i = 0; i < strings.length; i++) {
@@ -492,7 +578,7 @@ export class LdapEntry<T = any> {
   }
 
   all (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.values ?? []
+    return this.attrs.get(attr.toLocaleLowerCase())?.values as string[] ?? []
   }
 
   buffer (attr: string) {
@@ -550,10 +636,14 @@ export class LdapEntry<T = any> {
     return this.toJSON()
   }
 
-  async fullRange (attr: string, base: string) {
+  toString () {
+    return JSON.stringify(this.toJSON(), null, 2)
+  }
+
+  async fullRange (attr: string) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let entry: LdapEntry = this
-    const cn = this.get('cn')!
+    const dn = this.get('dn')!
     const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
     const ret: string[] = []
     while (true) {
@@ -565,7 +655,7 @@ export class LdapEntry<T = any> {
       const pageSize = 1 + high - low
       const newLow = high + 1
       const newHigh = newLow + pageSize - 1
-      entry = (await this.client.load(base, cn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
+      entry = (await this.client.load(dn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
     }
   }
 }
