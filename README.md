@@ -78,8 +78,10 @@ to do and the type of return data you expect.
 const person = await ldap.get('cn=you,ou=people,dc=yourdomain,dc=com')
 console.log(person.toJSON()) // { givenName: 'John', ... }
 
-const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
-console.log(people.toJSON()) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
+const persons = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
+for (person of persons) {
+  console.log(person.toJSON()) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
+}
 ```
 ## Return object
 In ldap-async v2.0 the return object changed to give you greater control over the return type you
