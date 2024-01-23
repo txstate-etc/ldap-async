@@ -1,1 +1,1 @@
-docker compose up --build --force-recreate --attach ldap-async
+docker compose up --build --force-recreate --abort-on-container-exit --attach ldap-async
