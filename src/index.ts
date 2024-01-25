@@ -243,7 +243,7 @@ export default class Ldap {
         const promises: Promise<void>[] = []
         for (const filters of batches) {
           promises.push(this.search(basedn, { scope: 'sub', filter: `(|${filters.join('')})`, attributes }).then(results => {
-            for (const entry of results) ret.set(entry.get('dn')!, entry)
+            for (const entry of results) ret.set(entry.dn, entry)
           }))
         }
         Promise.all(promises).then(() => { resolve(ret) }).catch(reject)
@@ -483,9 +483,8 @@ export default class Ldap {
       }
     }
     for (const sg of groups) {
-      const dn = sg.one('dn')!
-      if (!groupsExplored.has(dn)) {
-        groupsExplored.add(dn)
+      if (!groupsExplored.has(sg.dn)) {
+        groupsExplored.add(sg.dn)
         await this.getMemberRecur(ret, sg, groupsExplored)
       }
     }
@@ -558,7 +557,9 @@ const binaryAttributes = new Set(['photo', 'personalsignature', 'audio', 'jpegph
 
 export class LdapEntry<T = any> {
   attrs = new Map<string, Attribute>()
+  dn: string
   constructor (data: SearchEntry, protected client: Ldap) {
+    this.dn = data.pojo.objectName
     for (const attr of data.attributes) {
       const attrWithoutOptions = attr.type.split(';', 2)[0]!.toLocaleLowerCase()
       this.attrs.set(attrWithoutOptions, attr)
@@ -566,7 +567,7 @@ export class LdapEntry<T = any> {
   }
 
   get (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.values?.[0]
+    return this.all(attr)[0]
   }
 
   one (attr: string) {
@@ -578,6 +579,7 @@ export class LdapEntry<T = any> {
   }
 
   all (attr: string) {
+    if (attr === 'dn') return [this.dn]
     return this.attrs.get(attr.toLocaleLowerCase())?.values as string[] ?? []
   }
 
@@ -616,7 +618,7 @@ export class LdapEntry<T = any> {
   }
 
   toJSON () {
-    const obj: Record<string, string | string[] | Buffer | Buffer[]> = {}
+    const obj: Record<string, string | string[] | Buffer | Buffer[]> = { dn: this.dn }
     for (const attr of this.attrs.values()) {
       if (attr.buffers.length > 0) {
         const lcAttr = attr.type.split(';', 2)[0].toLocaleLowerCase()
@@ -643,7 +645,6 @@ export class LdapEntry<T = any> {
   async fullRange (attr: string) {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     let entry: LdapEntry = this
-    const dn = this.get('dn')!
     const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
     const ret: string[] = []
     while (true) {
@@ -655,7 +656,7 @@ export class LdapEntry<T = any> {
       const pageSize = 1 + high - low
       const newLow = high + 1
       const newHigh = newLow + pageSize - 1
-      entry = (await this.client.load(dn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
+      entry = (await this.client.load(this.dn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
     }
   }
 }

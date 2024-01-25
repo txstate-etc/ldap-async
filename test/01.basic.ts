@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
 /* global describe, it */
 import { expect } from 'chai'
 import ldap from '../src/client'
@@ -24,11 +25,14 @@ describe('basic tests', () => {
     expect(users).to.have.lengthOf(7)
   })
   it('should be able to search for a single user', async () => {
-    const user = await ldap.get<{ givenName: string }>('ou=people,dc=planetexpress,dc=com', {
+    const user = await ldap.get<{ dn: string, givenName: string }>('ou=people,dc=planetexpress,dc=com', {
       scope: 'sub',
       filter: '(&(objectClass=person)(givenName=Hubert))'
     })
     expect(user.one('givenName')).to.equal('Hubert')
+    expect(user.one('dn')).to.equal('cn=Hubert J. Farnsworth,ou=people,dc=planetexpress,dc=com')
+    expect(user.all('dn')).to.deep.equal(['cn=Hubert J. Farnsworth,ou=people,dc=planetexpress,dc=com'])
+    expect(user.pojo().dn).to.equal('cn=Hubert J. Farnsworth,ou=people,dc=planetexpress,dc=com')
   })
   it('should be able to search for a single user with the Filters API', async () => {
     const user = await ldap.get<{ givenName: string }>('ou=people,dc=planetexpress,dc=com', {
