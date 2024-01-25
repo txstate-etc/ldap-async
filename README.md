@@ -80,6 +80,10 @@ console.log(person.toJSON()) // { givenName: 'John', ... }
 
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
 console.log(people.map(p => p.toJSON())) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
+
+// return full LdapEntry objects for members of a group and members of all subgroups
+const people = await ldap.getMembers('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
+console.log(people.map(p => p.toJSON())) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
 ```
 ## Return object
 In ldap-async v2.0 the return object changed to give you greater control over the return type you
@@ -125,9 +129,6 @@ await ldap.modifyDN('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourself')
 // special group membership functions
 await ldap.addMember('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
 await ldap.removeMember('cn=you,ou=people,dc=yourdomain,dc=com', 'cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
-
-// return full LdapEntry objects for members of a group and members of all subgroups
-await ldap.getMembers('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
 ```
 ## Escaping
 When you construct LDAP search query strings, it's important to escape any input strings to prevent injection attacks. LDAP has two kinds of strings with different escaping requirements, so we provide a template literal helper for each.
@@ -196,26 +197,30 @@ const stream = ldap.stream('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
   filter: ldap.in(myNames, 'givenName')
 })
-for await (const person of stream) {
-  // do some work on the person
-}
+for await (const person of stream) { /* do some work on the person */ }
 ```
 `for await` is very safe, as `break`ing the loop or throwing an error inside the loop will clean up the stream appropriately.
 
 Since `.stream()` returns a `Readable` in object mode, you can easily do other things with
 it like `.pipe()` it to another stream processor. When using the stream without `for await`, you must call `stream.destroy()` if you do not want to finish processing it and carefully use `try {} finally {}` to destroy it in case your code throws an error. Failure to do so will leak a connection from the pool.
 
+There is also a `getMemberStream` function which performs the same as `getMembers`:
+```javascript
+const people = await ldap.getMemberStream('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
+for await (const p of people) { /* do some work on the person */ }
+```
+
 ## Binary data
 Some LDAP services store binary data as properties of records (e.g. user profile photos). In ldap-async v1.0,
 we provided a `_raw` property to work around this, but in v2.0 we support it with the new `LdapEntry` return
-object. So now you simply have to ask for the buffer for the attribute in question.
+object. So now you simply have to ask for the `Buffer` for the attribute in question.
 
 For example, to convert profile photos to data URLs, you could do something like this:
 
 ```typescript
 const user = await ldap.get(userDn)
 const convertedUser = {
-  ...user,
+  ...user.toJSON(),
   jpegPhoto: `data:image/jpeg;base64,${user.buffer('jpegPhoto').toString('base64')}`,
 }
 ```
