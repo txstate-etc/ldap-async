@@ -494,7 +494,7 @@ export default class Ldap {
     const ret = new Readable({ objectMode: true, highWaterMark: 100 }) as GenericReadable<LdapEntry<T>>
     ret._read = () => {}
     this.get(groupdn).then(async g => {
-      await this.getMemberRecur(ret, g, new Set(groupdn))
+      await this.getMemberRecur(ret, g, new Set([groupdn]))
       ret.push(null)
     }).catch(e => ret.destroy(e))
     return ret
