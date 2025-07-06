@@ -1,6 +1,6 @@
-import { Change, type Client, type ClientOptions, type Control, createClient, type SearchOptions, type SearchEntry, type Attribute, EqualityFilter, type Filter, OrFilter } from 'ldapjs'
-import { TextDecoder } from 'node:util'
-import { Readable, finished } from 'stream'
+import { Attribute, Client, type ClientOptions, type SearchOptions, Change, type AttributeOptions, type Control, type Entry, type Filter, EqualityFilter, OrFilter } from 'ldapts'
+import { readFileSync } from 'node:fs'
+import { Readable } from 'node:stream'
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
 interface StreamIterator <T> {
@@ -17,6 +17,7 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
   port?: string | number
   secure?: boolean
   poolSize?: number
+  startTLSCert?: string | Buffer | boolean
   logger?: {
     debug: (...args: string[]) => void
     info: (...args: string[]) => void
@@ -24,14 +25,11 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
     error: (...args: string[]) => void
   }
 }
-
-interface LdapClient extends Client {
-  busy?: boolean
-}
+const localConfig = new Set(['host', 'port', 'secure', 'poolSize', 'startTLSCert', 'logger'])
 
 export interface LdapChange {
   operation: string
-  modification: any
+  modification: AttributeOptions | Attribute
 }
 
 const filterReplacements = {
@@ -55,7 +53,6 @@ const dnReplacements = {
   ' ': '\\ '
 }
 
-const utfDecoder = new TextDecoder('utf8', { fatal: true })
 type ValidAttributeInput = boolean | number | string | Buffer
 
 function valToString (val: any) {
@@ -98,11 +95,12 @@ function batchOnBase (searches: { basedn: string, attr: string, val: string }[],
 export default class Ldap {
   protected connectpromise?: Promise<void>
   protected config: ClientOptions
-  protected clients: LdapClient[]
+  protected clients: (Client & { busy?: boolean })[]
   protected poolSize: number
   protected bindDN: string
   protected bindCredentials: string
-  protected poolQueue: ((client: LdapClient) => void)[]
+  protected startTLSCert?: string | Buffer | boolean
+  protected poolQueue: ((client: Client & { busy?: boolean }) => void)[]
   protected closeRequest?: (value?: any) => void
   private console: NonNullable<LdapConfig['logger']>
 
@@ -111,60 +109,39 @@ export default class Ldap {
       const secure = config.secure ?? process.env.LDAP_SECURE
       const host = config.host ?? process.env.LDAP_HOST ?? ''
       const port = config.port ?? process.env.LDAP_PORT
-      delete config.secure
-      delete config.host
-      delete config.port
       config.url = `${secure ? 'ldaps://' : 'ldap://'}${host}:${port ?? (secure ? '636' : '389')}`
     }
 
     this.console = config.logger ?? console
-    this.bindDN = config.bindDN ?? process.env.LDAP_DN ?? ''
-    this.bindCredentials = config.bindCredentials ?? process.env.LDAP_PASSWORD ?? process.env.LDAP_PASS ?? ''
-    delete config.bindDN
-    delete config.bindCredentials
 
-    if (!config.reconnect || config.reconnect === true) config.reconnect = {}
-    if (!config.reconnect.initialDelay) config.reconnect.initialDelay = 500
-    if (!config.reconnect.failAfter) config.reconnect.failAfter = Number.MAX_SAFE_INTEGER
-    if (!config.reconnect.maxDelay) config.reconnect.maxDelay = 5000
-    this.config = config as ClientOptions
+    this.bindDN = (config as any).bindDN ?? process.env.LDAP_DN ?? ''
+    this.bindCredentials = (config as any).bindCredentials ?? process.env.LDAP_PASSWORD ?? process.env.LDAP_PASS ?? ''
+    this.config = {} as any
+    for (const [key, value] of Object.entries(config)) {
+      if (value != null && !localConfig.has(key)) (this.config as any)[key] = value
+    }
 
+    this.startTLSCert = config.startTLSCert ?? (!!process.env.LDAP_STARTTLS || (process.env.LDAP_STARTTLS_CERT ? readFileSync(process.env.LDAP_STARTTLS_CERT) : undefined))
     this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN') || 5)
     this.clients = []
     this.poolQueue = []
   }
 
   protected async connect () {
-    const client = createClient(this.config) as LdapClient
-    client.busy = true
+    const client = Object.assign(new Client({ url: this.config.url }), { busy: true })
     this.clients.push(client)
+    return await this.bindConnection(client)
+  }
 
+  protected async bindConnection (client: Client & { busy?: boolean }) {
     try {
-      return await new Promise<LdapClient>((resolve, reject) => {
-        client.on('connect', () => {
-          client.removeAllListeners('error')
-          client.removeAllListeners('connectError')
-          client.removeAllListeners('setupError')
-          client.on('error', e => { reject(e) })
-          client.bind(this.bindDN, this.bindCredentials, err => {
-            if (err) { reject(err); return }
-            client.removeAllListeners('error')
-            client.on('error', e => { this.console.warn('Caught an error on ldap client, it is probably a connection problem that will auto-reconnect.', e.message) })
-            resolve(client)
-          })
-        })
-        client.on('error', (err) => {
-          reject(err)
-        })
-        client.on('connectError', (err) => {
-          reject(err)
-        })
-        client.on('setupError', (err) => {
-          reject(err)
-        })
-      })
+      if (this.startTLSCert) {
+        await client.startTLS({ cert: this.startTLSCert !== true ? this.startTLSCert : undefined })
+      }
+      await client.bind(this.bindDN, this.bindCredentials)
+      return client
     } catch (e) {
-      client.destroy()
+      await client.unbind().catch(() => {})
       this.clients = this.clients.filter(c => c !== client)
       throw e
     }
@@ -176,7 +153,7 @@ export default class Ldap {
       if (this.clients.length < this.poolSize) {
         client = await this.connect()
       } else {
-        client = await new Promise<LdapClient>(resolve => {
+        client = await new Promise<Client & { busy?: boolean }>(resolve => {
           this.poolQueue.push(client => {
             resolve(client)
           })
@@ -184,10 +161,11 @@ export default class Ldap {
       }
     }
     client.busy = true
+    if (!client.isConnected) await this.bindConnection(client)
     return client
   }
 
-  protected release (client: LdapClient) {
+  protected release (client: Client & { busy?: boolean }) {
     client.busy = false
     const nextInQueue = this.poolQueue.shift()
     if (nextInQueue) nextInQueue(client)
@@ -202,8 +180,9 @@ export default class Ldap {
       })
       this.closeRequest = undefined
     }
-    for (const client of this.clients) client.unbind()
+    const clients = this.clients
     this.clients = []
+    for (const client of clients) await client.unbind()
   }
 
   async wait () {
@@ -212,11 +191,10 @@ export default class Ldap {
       try {
         const client = await this.getClient()
         this.release(client)
-      } catch (e) {
+        break
+      } catch (e: any) {
         if (loops++ < 2) this.console.warn('Unable to connect to LDAP. Trying again in 2 seconds.')
-        else if (typeof this.config.reconnect === 'object' && loops > (this.config.reconnect.failAfter! / 2000)) {
-          throw new Error('Unable to connect to LDAP after ' + (loops * 2) + ' seconds.')
-        } else this.console.error('Unable to connect to LDAP. Trying again in 2 seconds.')
+        else this.console.error('Unable to connect to LDAP. Trying again in 2 seconds.', e.message)
         await new Promise(resolve => setTimeout(resolve, 2000))
       }
     }
@@ -249,11 +227,11 @@ export default class Ldap {
         Promise.all(promises).then(() => { resolve(ret) }).catch(reject)
       }, 0)
     })
-    const entries = await this.loadPromises[attrKey]!
+    const entries = await this.loadPromises[attrKey]
     return entries.get(dn)
   }
 
-  async search<T = any> (base: string, options?: SearchOptions, controls?: Control | Control[]) {
+  async search<T = any>(base: string, options?: SearchOptions, controls?: Control | Control[]) {
     const stream = this.stream<T>(base, options, controls)
     const results: LdapEntry<T>[] = []
     for await (const result of stream) {
@@ -266,21 +244,13 @@ export default class Ldap {
     if (options.paged == null || options.paged === true) options.paged = {}
     if (typeof options.paged === 'object') {
       if (!options.paged.pageSize) options.paged.pageSize = 200
-      options.paged.pagePause = true
     }
-    let unpause: (() => void) | undefined
-    let paused = true
+    options.explicitBufferAttributes ??= binaryAttributes
     let canceled = false
+    let unpause: ((value: any) => void) | undefined
     const stream = new Readable({ objectMode: true, autoDestroy: true }) as GenericReadable<LdapEntry<T>>
-    stream._read = () => {
-      paused = false
-      unpause?.()
-      unpause = undefined
-    }
-    stream._destroy = (err: Error, cb) => {
-      canceled = true
-      cb(err)
-    }
+    stream._read = () => { unpause?.(undefined) }
+    stream.on('close', () => { canceled = true })
     const stacktraceError: { stack?: string } = {}
     Error.captureStackTrace(stacktraceError, this.stream)
     const sendError = (e: any) => {
@@ -290,37 +260,28 @@ export default class Ldap {
       stream.emit('error', e)
     }
 
-    this.getClient().then(client => {
-      finished(stream as Readable, () => { this.release(client) })
-      client.search(base, options ?? {}, controls ?? [], (err, result) => {
-        if (err) { sendError(err); return }
-
-        result.on('searchEntry', data => {
-          if (canceled) return
-          if (!stream.push(new LdapEntry(data, this))) paused = true
-        })
-
-        result.on('page', (result, cb) => {
-          if (paused && !canceled) unpause = cb
-          else cb?.()
-        })
-
-        result.on('error', sendError)
-
-        result.on('end', (result) => {
-          if (canceled) return
-          if (result?.status === 0) {
-            stream.push(null)
-          } else {
-            sendError(new Error(`${result?.errorMessage ?? 'LDAP Search Failed'}\nStatus: ${result?.status ?? 'undefined'}`))
+    this.getClient().then(async client => {
+      try {
+        const searchIterator = client.searchPaginated(base, options ?? {}, controls ?? [])
+        for await (const result of searchIterator) {
+          for (const entry of result.searchEntries) {
+            if (canceled) break
+            const keepGoing = stream.push(new LdapEntry(entry, this))
+            if (!keepGoing) {
+              await new Promise(resolve => { unpause = resolve })
+            }
           }
-        })
-      })
+          if (canceled) break
+        }
+        stream.push(null)
+      } finally {
+        this.release(client)
+      }
     }).catch(sendError)
     return stream
   }
 
-  protected async useClient<T>(callback: (client: LdapClient) => Promise<T>) {
+  protected async useClient<T>(callback: (client: Client) => Promise<T>) {
     const client = await this.getClient()
     try {
       return await callback(client)
@@ -334,54 +295,47 @@ export default class Ldap {
    * or pullAttribute instead, or addMember/removeMember to manage group memberships. These
    * methods add extra convenience.
    */
-  async modify (dn: string, operation: string, modification: any): Promise<boolean>
-  async modify (dn: string, changes: Change[]): Promise<boolean>
-  async modify (dn: string, operationOrChanges: string | LdapChange[], modification?: any) {
-    const changes = Array.isArray(operationOrChanges)
-      ? operationOrChanges.map(c => new Change(c))
-      : [new Change({ operation: operationOrChanges, modification })]
-    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
-      client.modify(dn, changes, err => {
-        if (err) reject(err)
-        else resolve(true)
-      })
-    }))
+  async modify (dn: string, operationOrChanges: string | LdapChange[], modification?: AttributeOptions): Promise<boolean> {
+    return await this.useClient(async client => {
+      const changes = Array.isArray(operationOrChanges)
+        ? operationOrChanges.map(c => new Change({
+          operation: c.operation as 'add' | 'delete' | 'replace',
+          modification: c.modification instanceof Attribute ? c.modification : new Attribute(c.modification)
+        }))
+        : [new Change({ operation: operationOrChanges as 'add' | 'delete' | 'replace', modification: modification instanceof Attribute ? modification : new Attribute(modification) })]
+      await client.modify(dn, changes)
+      return true
+    })
   }
 
   /**
    * Add an object into the system.
    */
   async add (newDn: string, entry: any) {
-    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
-      client.add(newDn, entry, err => {
-        if (err) reject(err)
-        else resolve(true)
-      })
-    }))
+    return await this.useClient(async client => {
+      await client.add(newDn, entry)
+      return true
+    })
   }
 
   /**
    * Remove an object from the system.
    */
   async remove (dn: string) {
-    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
-      client.del(dn, err => {
-        if (err) reject(err)
-        else resolve(true)
-      })
-    }))
+    return await this.useClient(async client => {
+      await client.del(dn)
+      return true
+    })
   }
 
   /**
    * Rename an object.
    */
   async modifyDN (oldDn: string, newDn: string) {
-    return await this.useClient(async client => await new Promise<boolean>((resolve, reject) => {
-      client.modifyDN(oldDn, newDn, err => {
-        if (err) reject(err)
-        else resolve(true)
-      })
-    }))
+    return await this.useClient(async client => {
+      await client.modifyDN(oldDn, newDn)
+      return true
+    })
   }
 
   /**
@@ -472,8 +426,7 @@ export default class Ldap {
             const feedme = ret.push(m)
             if (!feedme) {
               await new Promise(resolve => {
-                ret.on('resume', () => {
-                  ret.removeAllListeners('resume')
+                ret.once('resume', () => {
                   resolve(undefined)
                 })
               })
@@ -492,7 +445,7 @@ export default class Ldap {
 
   getMemberStream<T = any> (groupdn: string) {
     const ret = new Readable({ objectMode: true, highWaterMark: 100 }) as GenericReadable<LdapEntry<T>>
-    ret._read = () => {}
+    ret._read = () => { ret.resume() }
     this.get(groupdn).then(async g => {
       await this.getMemberRecur(ret, g, new Set([groupdn]))
       ret.push(null)
@@ -553,42 +506,45 @@ export default class Ldap {
   }
 }
 
-const binaryAttributes = new Set(['photo', 'personalsignature', 'audio', 'jpegphoto', 'javaserializeddata', 'thumbnaildhoto', 'thumbnaillogo', 'userpassword', 'usercertificate', 'cacertificate', 'authorityrevocationlist', 'certificaterevocationlist', 'crosscertificatepair', 'x500uniqueidentifier'])
+const binaryAttributes = ['photo', 'audio', 'jpegphoto', 'jpegPhoto', 'thumbnailphoto', 'thumbnailPhoto', 'thumbnaillogo', 'thumbnailLogo']
 
 export class LdapEntry<T = any> {
-  attrs = new Map<string, Attribute>()
+  attrs = new Map<string, { type: string, values: string[] | Buffer<ArrayBufferLike>[] }>()
   dn: string
-  constructor (data: SearchEntry, protected client: Ldap) {
-    this.dn = data.pojo.objectName
-    for (const attr of data.attributes) {
-      const attrWithoutOptions = attr.type.split(';', 2)[0]!.toLocaleLowerCase()
-      this.attrs.set(attrWithoutOptions, attr)
+  constructor (data: Entry, protected client: Ldap) {
+    this.dn = data.dn
+    for (const [key, value] of Object.entries(data)) {
+      const attrWithoutOptions = key.split(';', 2)[0].toLocaleLowerCase()
+      this.attrs.set(attrWithoutOptions, {
+        type: key,
+        values: (Array.isArray(value) ? value : [value]) as string[] | Buffer<ArrayBufferLike>[]
+      })
     }
   }
 
   get (attr: string) {
-    return this.all(attr)[0]
+    return this.all(attr)[0] as string | undefined
   }
 
   one (attr: string) {
-    return this.get(attr.toLocaleLowerCase())
+    return this.get(attr)
   }
 
   first (attr: string) {
-    return this.get(attr.toLocaleLowerCase())
+    return this.get(attr)
   }
 
   all (attr: string) {
     if (attr === 'dn') return [this.dn]
-    return this.attrs.get(attr.toLocaleLowerCase())?.values as string[] ?? []
+    return (this.attrs.get(attr.toLocaleLowerCase())?.values ?? []).map(val => Buffer.isBuffer(val) ? val.toString('base64') : val)
   }
 
   buffer (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.buffers?.[0]
+    return this.buffers(attr)[0] as Buffer<ArrayBufferLike> | undefined
   }
 
   buffers (attr: string) {
-    return this.attrs.get(attr.toLocaleLowerCase())?.buffers ?? []
+    return this.attrs.get(attr.toLocaleLowerCase())?.values.map(val => Buffer.isBuffer(val) ? val : Buffer.from(val, 'utf-8')) ?? []
   }
 
   binary (attr: string) {
@@ -600,15 +556,8 @@ export class LdapEntry<T = any> {
   }
 
   isBinary (attr: string) {
-    const lcAttr = attr.toLocaleLowerCase()
-    return binaryAttributes.has(lcAttr) || this.options(lcAttr).includes('binary') || this.attrs.get(lcAttr)?.buffers.some(b => {
-      try {
-        utfDecoder.decode(b)
-        return false
-      } catch {
-        return true
-      }
-    })
+    const val = this.attrs.get(attr.toLocaleLowerCase())?.values[0]
+    return val && Buffer.isBuffer(val)
   }
 
   protected optionsCache: string[] | undefined
@@ -620,14 +569,16 @@ export class LdapEntry<T = any> {
   toJSON () {
     const obj: Record<string, string | string[] | Buffer | Buffer[]> = { dn: this.dn }
     for (const attr of this.attrs.values()) {
-      if (attr.buffers.length > 0) {
-        const lcAttr = attr.type.split(';', 2)[0].toLocaleLowerCase()
+      const lcAttr = attr.type.split(';', 2)[0].toLocaleLowerCase()
+      const values = this.attrs.get(lcAttr)?.values
+      if (values?.length) {
         if (this.isBinary(lcAttr)) {
-          if (attr.values.length === 1) obj[lcAttr] = attr.buffers[0].toString('base64')
-          else obj[lcAttr] = attr.buffers.map(b => b.toString('base64'))
+          const buffers = values as Buffer<ArrayBufferLike>[]
+          if (buffers.length === 1) obj[lcAttr] = buffers[0].toString('base64')
+          else obj[lcAttr] = buffers.map((b: Buffer) => b.toString('base64'))
         } else {
-          if (attr.values.length === 1) obj[lcAttr] = attr.values[0]
-          else obj[lcAttr] = attr.values
+          if (values.length === 1) obj[lcAttr] = values[0]
+          else obj[lcAttr] = values
         }
       }
     }
@@ -648,15 +599,16 @@ export class LdapEntry<T = any> {
     const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
     const ret: string[] = []
     while (true) {
-      ret.push(...entry.all(attr))
+      const allVals = entry.all(attr)
+      if (allVals) ret.push(...allVals)
       const pageOpt = entry.options(attr).find(o => o.startsWith('range='))
-      if (!pageOpt || pageOpt.endsWith('*') || entry.all(attr).length === 0) return ret
+      if (!pageOpt || pageOpt.endsWith('*') || !allVals) return ret
       const [, rangeStr] = pageOpt.split('=')
       const [low, high] = rangeStr.split('-').map(Number)
       const pageSize = 1 + high - low
-      const newLow = high + 1
-      const newHigh = newLow + pageSize - 1
-      entry = (await this.client.load(this.dn, attrWithOptions + `;range=${newLow}-${newHigh}`))!
+      const newLow = allVals.length ? high + 1 : low
+      const newHigh = allVals.length ? newLow + pageSize - 1 : '*'
+      entry = (await this.client.load(this.dn, [attrWithOptions + `;range=${newLow}-${newHigh}`]))!
     }
   }
 }

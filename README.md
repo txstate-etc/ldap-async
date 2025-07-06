@@ -1,14 +1,15 @@
 # Overview
-This library is a wrapper around [ldapjs](http://ldapjs.org/) providing convenience with a few core principles:
+This library is a wrapper around [ldapts](https://www.npmjs.com/package/ldapts) providing convenience with a few core principles:
 * Focus on promises and async iterators, do away with callbacks and event-emitting streams
 * Always use a connection pool
 * Hide everything having to do with acquiring/releasing connections
 * Provide an easy way to configure with environment variables
 * Provide lots of convenience methods and restructure return data for easier lookups
 
-# Upgrade from v1.0 to v2.0
-You WILL have to alter your usage after upgrading to 2.0. The major breaking change is the
-return object from search queries. See the section below titled "Return Object".
+# Upgrade from v2.0 to v3.0
+The major change in v3.0 is that the library now wraps [ldapts](https://www.npmjs.com/package/ldapts) instead of `ldapjs`, since `ldapjs` is no longer maintained. The `ldap-async` API remains the same, but in some cases we were accepting ldapjs-specific objects, such as `Filter` and `Control` objects. `ldapts` offers many of the same objects, but you will need to import them from `ldapts` instead of `ldapjs`.
+
+Similarly if you are catching specific errors, you will need to compare against the `ldapts` error classes instead of the `ldapjs` ones. For example, if you were catching `ldapjs.InvalidCredentialsError`, you will now need to catch `ldapts.InvalidCredentialsError` instead.
 
 # Getting Started
 ## Standard connection
@@ -31,7 +32,7 @@ export const ldap = new Ldap({
   bindDN: 'cn=root',
   bindCredentials: 'secret',
 
-  // and any other options supported by ldapjs
+  // and any other options supported by ldapts
   timeout: 30000
 })
 
@@ -48,6 +49,8 @@ environment variables:
   LDAP_HOST
   LDAP_PORT // default is 389 or 636 if you set LDAP_SECURE
   LDAP_SECURE // set truthy to use ldaps protocol
+  LDAP_STARTTLS // set truthy to use StartTLS
+  LDAP_STARTTLS_CERT // full path to a certificate file, enables StartTLS
   LDAP_DN // the DN with which to bind
   LDAP_PASS // the password for the bind DN
   LDAP_POOLSIZE (default: 5)
@@ -179,16 +182,16 @@ Note that `any`, `all` and `anyall` can accept an optional `wildcard` parameter 
   ldap.all({ givenName: 'John', sn: 'S*' }, true)
   // => '(&(givenName=John)(sn=S*))
   ```
-## ldapjs 3.0 Filters API
-ldapjs added a "Filters API" in their 3.0 version that helps you create (and parse) filters. You're free to use that instead of the
+## ldapts Filters API
+ldapts offers a "Filters API" that helps you create (and parse) filters. You're free to use that instead of the
 filter helpers provided by ldap-async. Just make a filter object with their Filters API and give it to any appropriate method in ldap-async:
 ```javascript
+import { EqualityFilter } from 'ldapts'
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
   filter: new EqualityFilter({ attribute: 'givenName', value: n })
 })
 ```
-For more information, see the [Filters API documentation](http://ldapjs.org/filters.html).
 # Advanced Usage
 ## Streaming
 To avoid using too much memory on huge datasets, we provide a `stream` method that performs the same as `search` but returns a node `Readable`. It is recommended to use the async iterator pattern:
@@ -197,7 +200,9 @@ const stream = ldap.stream('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
   filter: ldap.in(myNames, 'givenName')
 })
-for await (const person of stream) { /* do some work on the person */ }
+for await (const person of stream) {
+  /* do some work on the person */
+}
 ```
 `for await` is very safe, as `break`ing the loop or throwing an error inside the loop will clean up the stream appropriately.
 
@@ -211,14 +216,24 @@ for await (const p of people) { /* do some work on the person */ }
 ```
 
 ## Binary data
-Some LDAP services store binary data as properties of records (e.g. user profile photos). In ldap-async v1.0,
-we provided a `_raw` property to work around this, but in v2.0 we support it with the new `LdapEntry` return
-object. So now you simply have to ask for the `Buffer` for the attribute in question.
-
-For example, to convert profile photos to data URLs, you could do something like this:
+Some LDAP services store binary data as properties of records (e.g. user profile photos). In ldap-async v1.0, we provided a `_raw` property to work around this. In v2.0 we supported it with the new `LdapEntry` return object. In v3.0, unfortunately, the `ldapts` library requires you to explicitly specify which attributes should be treated as binary data before the search is performed. You can do this by passing an `explicitBufferAttributes` option to the `search` method, then you can access the binary data using the `.buffer()` method.
 
 ```typescript
-const user = await ldap.get(userDn)
+const people = await ldap.search('ou=people,dc=yourdomain,dc=com', {
+  scope: 'sub',
+  filter: ldap.in(myNames, 'givenName'),
+  explicitBufferAttributes: ['jpegPhoto']
+})
+for (const person of people) {
+  const photoBuffer = person.buffer('jpegPhoto') // get the jpegPhoto as a Buffer
+  // do something with the photoBuffer, like saving it to a file or processing it
+}
+```
+
+For another example, to convert profile photos to data URLs, you could do something like this:
+
+```typescript
+const user = await ldap.get(userDn, { explicitBufferAttributes: ['jpegPhoto'] })
 const convertedUser = {
   ...user.toJSON(),
   jpegPhoto: `data:image/jpeg;base64,${user.buffer('jpegPhoto').toString('base64')}`,

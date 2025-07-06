@@ -11,3 +11,4 @@ services:
       - openldap
   openldap:
     image: ghcr.io/rroemhild/docker-test-openldap:master
+    attach: false

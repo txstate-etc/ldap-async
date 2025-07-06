@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 /* global describe, it */
 import { expect } from 'chai'
-import { UndefinedAttributeTypeError } from 'ldapjs'
 import ldap from '../src/client'
+import { UndefinedTypeError } from 'ldapts'
 
 const fryDN = 'cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com'
 const amyDN = 'cn=Amy Wong+sn=Kroker,ou=people,dc=planetexpress,dc=com'
@@ -37,7 +37,7 @@ describe('write tests', () => {
       await ldap.setAttribute(amyDN, 'notInSchema', 'blah')
       expect.fail('Should have thrown.')
     } catch (e: any) {
-      expect(e.message.toLocaleLowerCase()).to.include('undefined attribute type')
+      expect(e.message.toLocaleLowerCase()).to.include('attribute type undefined')
     }
     const after = await ldap.get(amyDN)
     expect(after.one('notInSchema')).to.be.undefined
@@ -57,7 +57,7 @@ describe('write tests', () => {
       await ldap.setAttribute(fryDN, 'randomAttrThatDoesntExist', 'Not sure if...')
       expect.fail('should have thrown')
     } catch (e: any) {
-      expect(e).to.be.an.instanceOf(UndefinedAttributeTypeError)
+      expect(e).to.be.an.instanceOf(UndefinedTypeError)
       expect(e.message).not.to.be.undefined
     }
   })

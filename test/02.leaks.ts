@@ -45,7 +45,7 @@ describe('connection leak tests', () => {
       })
       expect(true, 'should not have gotten this far').to.be.false
     } catch (e: any) {
-      expect(e.message).to.contain('invalid attribute')
+      expect(e.message).to.match(/invalid attribute/i)
     }
     for (const c of (ldap as any).clients) {
       expect(c.busy).to.not.be.true

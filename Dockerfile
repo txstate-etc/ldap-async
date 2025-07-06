@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:24-alpine
 WORKDIR /usr/app
 
 COPY package.json ./
@@ -8,5 +8,4 @@ COPY tsconfig.json ./
 COPY src src
 COPY test test
 
-ENTRYPOINT [ "npm" ]
-CMD [ "run", "mocha", "--silent" ]
+CMD ["npm", "run", "mocha"]

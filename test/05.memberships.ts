@@ -25,7 +25,7 @@ describe('group membership tests', () => {
   it('should be able to remove a member from a group', async () => {
     await ldap.removeMember(amyDN, crewDN)
     const after = await ldap.get(crewDN)
-    expect(after.all('member').length).to.be.greaterThan(0)
+    expect(after.all('member')?.length).to.be.greaterThan(0)
     expect(after.all('member')).not.to.include(amyDN)
   })
   it('should not throw an error if we remove a member from a group when they are not a member', async () => {

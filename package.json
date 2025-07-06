@@ -1,7 +1,7 @@
 {
   "name": "ldap-async",
-  "version": "2.1.2",
-  "description": "A wrapper around ldapjs to provide promises, pooling, config by environment, and other conveniences.",
+  "version": "3.0.0",
+  "description": "A wrapper around ldapts to provide pooling, config by environment, and other conveniences.",
   "exports": {
     ".": {
       "require": "./dist/index.js",
@@ -25,8 +25,7 @@
     "test": "./test.sh"
   },
   "dependencies": {
-    "@types/ldapjs": "^3.0.2",
-    "ldapjs": "^3.0.5"
+    "ldapts": "^8.0.4"
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
@@ -46,6 +45,7 @@
   "keywords": [
     "ldap",
     "ldapjs",
+    "ldapts",
     "activedirectory",
     "async",
     "pool"

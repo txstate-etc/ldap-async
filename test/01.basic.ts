@@ -2,7 +2,7 @@
 /* global describe, it */
 import { expect } from 'chai'
 import ldap from '../src/client'
-import { AndFilter, EqualityFilter, Filter } from 'ldapjs'
+import { AndFilter, EqualityFilter } from 'ldapts'
 
 before(async function () {
   this.timeout(30000)

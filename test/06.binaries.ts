@@ -17,6 +17,7 @@ describe('binary tests', () => {
 
   it('should get good binary data', async () => {
     const user = await ldap.get<{ jpegPhoto: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+    const photo = user.attrs.get('jpegphoto')!.values[0]
     const dim = sizeOf(user.binary('jpegPhoto')!)
     expect(dim.width).to.equal(429)
     expect(user.isBinary('jpegPhoto')).to.be.true
