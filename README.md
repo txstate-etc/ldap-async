@@ -32,6 +32,9 @@ export const ldap = new Ldap({
   bindDN: 'cn=root',
   bindCredentials: 'secret',
 
+  // optional: preserve attribute case in .toJSON() (default is false, which forces lower-casing)
+  preserveAttributeCase: true,
+
   // and any other options supported by ldapts
   timeout: 30000
 })
@@ -54,6 +57,7 @@ environment variables:
   LDAP_DN // the DN with which to bind
   LDAP_PASS // the password for the bind DN
   LDAP_POOLSIZE (default: 5)
+  LDAP_PRESERVE_ATTRIBUTE_CASE // set truthy to disable forced lower-casing of attributes in .toJSON()
 ```
 This way, connecting is very simple, and you don't have to worry about creating a singleton pool for the
 rest of your codebase to import, because it's done for you:

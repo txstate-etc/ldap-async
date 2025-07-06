@@ -3,6 +3,7 @@
 import { expect } from 'chai'
 import ldap from '../src/client'
 import { AndFilter, EqualityFilter } from 'ldapts'
+import Ldap from '../src'
 
 before(async function () {
   this.timeout(30000)
@@ -95,5 +96,23 @@ describe('basic tests', () => {
     }
     await Promise.all(promises)
     expect((ldap as any).clients).to.have.lengthOf(5)
+  })
+  it('should be able to JSON.stringify an entry and preserve the server-side casing', async () => {
+    const user = await ldap.get<{ givenname: string, jpegphoto: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com', { attributes: ['givenName', 'jpegphoto'] })
+    const jsonObj = user.toJSON()
+    expect(jsonObj.givenname).to.equal('Philip')
+    expect(jsonObj.jpegphoto.length).to.be.greaterThan(0)
+    expect(Buffer.isBuffer(jsonObj.jpegphoto)).to.be.false
+    expect(Buffer.from(jsonObj.jpegphoto, 'base64').length).to.be.greaterThan(0)
+  })
+  it('should JSON.stringify with lower case attributes if configured', async () => {
+    const lcClient = new Ldap({ preserveAttributeCase: true })
+    const user = await lcClient.get<{ givenName: string, jpegPhoto: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com', { attributes: ['givenName', 'jpegPhoto'] })
+    const jsonObj = user.toJSON()
+    expect(jsonObj.givenName).to.equal('Philip')
+    expect(jsonObj.jpegPhoto.length).to.be.greaterThan(0)
+    expect(Buffer.isBuffer(jsonObj.jpegPhoto)).to.be.false
+    expect(Buffer.from(jsonObj.jpegPhoto, 'base64').length).to.be.greaterThan(0)
+    await lcClient.close()
   })
 })

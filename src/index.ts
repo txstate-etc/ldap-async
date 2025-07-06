@@ -24,8 +24,9 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
     warn: (...args: string[]) => void
     error: (...args: string[]) => void
   }
+  preserveAttributeCase?: boolean
 }
-const localConfig = new Set(['host', 'port', 'secure', 'poolSize', 'startTLSCert', 'logger'])
+const localConfig = new Set(['host', 'port', 'secure', 'poolSize', 'startTLSCert', 'logger', 'preserveAttributeCase'])
 
 export interface LdapChange {
   operation: string
@@ -97,6 +98,7 @@ export default class Ldap {
   protected config: ClientOptions
   protected clients: (Client & { busy?: boolean })[]
   protected poolSize: number
+  protected preserveAttributeCase: boolean
   protected bindDN: string
   protected bindCredentials: string
   protected startTLSCert?: string | Buffer | boolean
@@ -125,6 +127,7 @@ export default class Ldap {
     this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN') || 5)
     this.clients = []
     this.poolQueue = []
+    this.preserveAttributeCase = config.preserveAttributeCase ?? !!process.env.LDAP_PRESERVE_ATTRIBUTE_CASE
   }
 
   protected async connect () {
@@ -515,6 +518,7 @@ export class LdapEntry<T = any> {
   constructor (data: Entry, protected client: Ldap) {
     this.dn = data.dn
     for (const [key, value] of Object.entries(data)) {
+      if (value.length === 0) continue
       const attrWithoutOptions = key.split(';', 2)[0].toLocaleLowerCase()
       this.attrs.set(attrWithoutOptions, {
         type: key,
@@ -570,16 +574,18 @@ export class LdapEntry<T = any> {
   toJSON () {
     const obj: Record<string, string | string[] | Buffer | Buffer[]> = { dn: this.dn }
     for (const attr of this.attrs.values()) {
-      const lcAttr = attr.type.split(';', 2)[0].toLocaleLowerCase()
+      const baseAttr = attr.type.split(';', 2)[0]
+      const lcAttr = baseAttr.toLocaleLowerCase()
+      const resolvedAttr = (this.client as any).preserveAttributeCase ? baseAttr : lcAttr
       const values = this.attrs.get(lcAttr)?.values
       if (values?.length) {
-        if (this.isBinary(lcAttr)) {
+        if (this.isBinary(baseAttr)) {
           const buffers = values as Buffer<ArrayBufferLike>[]
-          if (buffers.length === 1) obj[lcAttr] = buffers[0].toString('base64')
-          else obj[lcAttr] = buffers.map((b: Buffer) => b.toString('base64'))
+          if (buffers.length === 1) obj[resolvedAttr] = buffers[0].toString('base64')
+          else obj[resolvedAttr] = buffers.map((b: Buffer) => b.toString('base64'))
         } else {
-          if (values.length === 1) obj[lcAttr] = values[0]
-          else obj[lcAttr] = values
+          if (values.length === 1) obj[resolvedAttr] = values[0]
+          else obj[resolvedAttr] = values
         }
       }
     }
