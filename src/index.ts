@@ -412,13 +412,13 @@ export default class Ldap {
     return await this.pullAttribute(groupdn, 'member', memberdn)
   }
 
-  private async getMemberRecur (ret: Readable, g: LdapEntry, groupsExplored: Set<string>) {
+  private async getMemberRecur (ret: Readable, g: LdapEntry, groupsExplored: Set<string>, attributes?: SearchOptions['attributes']) {
     const members = await g.fullRange('member')
     const batchMap = batchOnBase(members.map(searchForDN))
     const groups: LdapEntry[] = []
     for (const [basedn, batches] of Object.entries(batchMap)) {
       for (const filter of batches) {
-        const strm = this.stream(basedn, { scope: 'sub', filter })
+        const strm = this.stream(basedn, { scope: 'sub', filter, attributes })
         for await (const m of strm) {
           const isGroup = m.one('member') != null
           if (isGroup) groups.push(m)
@@ -438,23 +438,24 @@ export default class Ldap {
     for (const sg of groups) {
       if (!groupsExplored.has(sg.dn)) {
         groupsExplored.add(sg.dn)
-        await this.getMemberRecur(ret, sg, groupsExplored)
+        await this.getMemberRecur(ret, sg, groupsExplored, attributes)
       }
     }
   }
 
-  getMemberStream<T = any> (groupdn: string) {
+  getMemberStream<T = any> (groupdn: string, attributes?: SearchOptions['attributes']) {
+    attributes = attributes?.length ? attributes.filter(attr => attr !== 'member').concat(['member']) : undefined
     const ret = new Readable({ objectMode: true, highWaterMark: 100 }) as GenericReadable<LdapEntry<T>>
     ret._read = () => { ret.resume() }
-    this.get(groupdn).then(async g => {
-      await this.getMemberRecur(ret, g, new Set([groupdn]))
+    this.get(groupdn, { attributes: ['member'] }).then(async g => {
+      await this.getMemberRecur(ret, g, new Set([groupdn]), attributes)
       ret.push(null)
     }).catch(e => ret.destroy(e))
     return ret
   }
 
-  async getMembers<T = any> (groupdn: string) {
-    const strm = this.getMemberStream<T>(groupdn)
+  async getMembers<T = any> (groupdn: string, attributes?: SearchOptions['attributes']) {
+    const strm = this.getMemberStream<T>(groupdn, attributes)
     const members: LdapEntry<T>[] = []
     for await (const m of strm) members.push(m)
     return members

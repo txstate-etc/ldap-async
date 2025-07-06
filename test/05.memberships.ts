@@ -77,4 +77,21 @@ describe('group membership tests', () => {
     expect(members.map(m => m.one('givenname'))).to.include('Bender')
     expect(members).to.have.lengthOf(4)
   })
+  it('should be able to stream members of a group with attributes', async () => {
+    const strm = ldap.getMemberStream('cn=ship_crew,ou=people,dc=planetexpress,dc=com', ['givenName', 'sn'])
+    const members: LdapEntry[] = []
+    for await (const m of strm) {
+      members.push(m)
+    }
+    expect(members.map(m => m.one('givenname'))).to.include('Scruffy')
+    expect(members.map(m => m.one('sn'))).to.include('Scruffington')
+    expect(members.map(m => m.one('givenname'))).to.include('Leela')
+    expect(members.map(m => m.one('sn'))).to.include('Turanga')
+    expect(members.map(m => m.one('givenname'))).to.include('Philip')
+    expect(members.map(m => m.one('sn'))).to.include('Fry')
+    expect(members.map(m => m.one('givenname'))).to.include('Bender')
+    expect(members.map(m => m.one('sn'))).to.include('Rodriguez')
+    expect(members).to.have.lengthOf(4)
+    expect(members.map(m => m.one('employeeType'))).to.deep.equal([undefined, undefined, undefined, undefined])
+  })
 })
