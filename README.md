@@ -220,13 +220,12 @@ for await (const p of people) { /* do some work on the person */ }
 ```
 
 ## Binary data
-Some LDAP services store binary data as properties of records (e.g. user profile photos). In ldap-async v1.0, we provided a `_raw` property to work around this. In v2.0 we supported it with the new `LdapEntry` return object. In v3.0, unfortunately, the `ldapts` library requires you to explicitly specify which attributes should be treated as binary data before the search is performed. You can do this by passing an `explicitBufferAttributes` option to the `search` method, then you can access the binary data using the `.buffer()` method.
+Some LDAP services store binary data as properties of records (e.g. user profile photos). In ldap-async v1.0, we provided a `_raw` property to work around this. In v2.0 we supported it with the new `LdapEntry` return object. Just access the binary data using the `.buffer()` method.
 
 ```typescript
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', {
   scope: 'sub',
-  filter: ldap.in(myNames, 'givenName'),
-  explicitBufferAttributes: ['jpegPhoto']
+  filter: ldap.in(myNames, 'givenName')
 })
 for (const person of people) {
   const photoBuffer = person.buffer('jpegPhoto') // get the jpegPhoto as a Buffer
