@@ -131,7 +131,7 @@ export default class Ldap {
   }
 
   protected async connect () {
-    const client = Object.assign(new Client({ url: this.config.url }), { busy: true })
+    const client = Object.assign(new Client(this.config), { busy: true })
     this.clients.push(client)
     return await this.bindConnection(client)
   }
