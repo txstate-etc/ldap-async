@@ -215,7 +215,7 @@ it like `.pipe()` it to another stream processor. When using the stream without 
 
 There is also a `getMemberStream` function which performs the same as `getMembers`:
 ```javascript
-const people = await ldap.getMemberStream('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
+const people = ldap.getMemberStream('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
 for await (const p of people) { /* do some work on the person */ }
 ```
 
