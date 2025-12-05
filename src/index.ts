@@ -16,6 +16,7 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
   port?: string | number
   secure?: boolean
   poolSize?: number
+  keepaliveSeconds?: number
 }
 
 interface LdapClient extends Client {
@@ -53,6 +54,7 @@ export default class Ldap {
   protected config: ClientOptions
   protected clients: LdapClient[]
   protected poolSize: number
+  protected keepaliveSeconds?: number
   protected bindDN: string
   protected bindCredentials: string
   protected poolQueue: ((client: LdapClient) => void)[]
@@ -78,9 +80,11 @@ export default class Ldap {
     if (!config.reconnect.initialDelay) config.reconnect.initialDelay = 500
     if (!config.reconnect.failAfter) config.reconnect.failAfter = Number.MAX_SAFE_INTEGER
     if (!config.reconnect.maxDelay) config.reconnect.maxDelay = 5000
+    if (!config.keepaliveSeconds) config.keepaliveSeconds = parseInt(process.env.LDAP_KEEPALIVE_SECONDS ?? '0') || undefined
     this.config = config as ClientOptions
 
     this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN') || 5)
+    this.keepaliveSeconds = config.keepaliveSeconds
     this.clients = []
     this.poolQueue = []
   }
@@ -92,7 +96,8 @@ export default class Ldap {
 
     try {
       return await new Promise<LdapClient>((resolve, reject) => {
-        client.on('connect', () => {
+        client.on('connect', (socket) => {
+          if (this.keepaliveSeconds) socket.setKeepAlive(true, socket.keepaliveSeconds * 1000)
           client.removeAllListeners('error')
           client.removeAllListeners('connectError')
           client.removeAllListeners('setupError')
