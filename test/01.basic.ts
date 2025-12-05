@@ -3,6 +3,18 @@ import { expect } from 'chai'
 import ldap from '../src/client'
 
 describe('basic tests', () => {
+  before(async function () {
+    this.timeout(30000)
+    for (let i = 0; i < 30; i++) {
+      try {
+        await ldap.setAttribute('cn=Bender Bending Rodriguez,ou=people,dc=planetexpress,dc=com', 'cn', 'Bender Bending Rodriguez')
+        break
+      } catch (e: any) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    }
+  })
+
   it('should be able to search for all users', async () => {
     const users = await ldap.search('ou=people,dc=planetexpress,dc=com', {
       scope: 'sub',

@@ -58,7 +58,7 @@ describe('write tests', () => {
     expect(final.givenName).to.equal('Philip')
   })
   it('should be able to rename an object', async () => {
-    await ldap.modifyDN('cn=Bender Bending Rodríguez,ou=people,dc=planetexpress,dc=com', 'cn=Bender Bending Rodrígo')
+    await ldap.modifyDN('cn=Bender Bending Rodriguez,ou=people,dc=planetexpress,dc=com', 'cn=Bender Bending Rodrígo')
     const after = await ldap.get('cn=Bender Bending Rodrígo,ou=people,dc=planetexpress,dc=com')
     expect(after.cn).to.equal('Bender Bending Rodrígo')
   })

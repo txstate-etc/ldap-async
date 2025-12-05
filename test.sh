@@ -1,2 +1,2 @@
 docker compose down
-docker compose up --build --attach ldap-async
+docker compose up --build --exit-code-from ldap-async
