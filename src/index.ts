@@ -17,6 +17,8 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
   port?: string | number
   secure?: boolean
   poolSize?: number
+  keepaliveSeconds?: number
+  idleTimeoutSeconds?: number
   startTLSCert?: string | Buffer | boolean
   logger?: {
     debug: (...args: string[]) => void
@@ -26,7 +28,7 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
   }
   preserveAttributeCase?: boolean
 }
-const localConfig = new Set(['host', 'port', 'secure', 'poolSize', 'startTLSCert', 'logger', 'preserveAttributeCase'])
+const localConfig = new Set(['host', 'port', 'secure', 'poolSize', 'keepaliveSeconds', 'idleTimeoutSeconds', 'startTLSCert', 'logger', 'preserveAttributeCase'])
 
 export interface LdapChange {
   operation: string
@@ -93,16 +95,20 @@ function batchOnBase (searches: { basedn: string, attr: string, val: string }[],
   return ret
 }
 
+type PooledClient = Client & { busy?: boolean, idleTimer?: ReturnType<typeof setTimeout> }
+
 export default class Ldap {
   protected connectpromise?: Promise<void>
   protected config: ClientOptions
-  protected clients: (Client & { busy?: boolean })[]
+  protected clients: PooledClient[]
   protected poolSize: number
+  protected keepaliveSeconds?: number
+  protected idleTimeoutSeconds: number
   protected preserveAttributeCase: boolean
   protected bindDN: string
   protected bindCredentials: string
   protected startTLSCert?: string | Buffer | boolean
-  protected poolQueue: ((client: Client & { busy?: boolean }) => void)[]
+  protected poolQueue: ((client: Client & { busy?: boolean, lastUsed?: Date }) => void)[]
   protected closeRequest?: (value?: any) => void
   private console: NonNullable<LdapConfig['logger']>
 
@@ -125,6 +131,8 @@ export default class Ldap {
 
     this.startTLSCert = config.startTLSCert ?? (!!process.env.LDAP_STARTTLS || (process.env.LDAP_STARTTLS_CERT ? readFileSync(process.env.LDAP_STARTTLS_CERT) : undefined))
     this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN') || 5)
+    this.keepaliveSeconds = config.keepaliveSeconds ?? (parseInt(process.env.LDAP_KEEPALIVE_SECONDS ?? 'NaN') || undefined)
+    this.idleTimeoutSeconds = config.idleTimeoutSeconds ?? parseInt(process.env.LDAP_IDLE_TIMEOUT_SECONDS ?? '300')
     this.clients = []
     this.poolQueue = []
     this.preserveAttributeCase = config.preserveAttributeCase ?? !!process.env.LDAP_PRESERVE_ATTRIBUTE_CASE
@@ -136,12 +144,13 @@ export default class Ldap {
     return await this.bindConnection(client)
   }
 
-  protected async bindConnection (client: Client & { busy?: boolean }) {
+  protected async bindConnection (client: PooledClient) {
     try {
       if (this.startTLSCert) {
         await client.startTLS({ cert: this.startTLSCert !== true ? this.startTLSCert : undefined })
       }
       await client.bind(this.bindDN, this.bindCredentials)
+      if (this.keepaliveSeconds) (client as any).socket.setKeepAlive(true, this.keepaliveSeconds * 1000)
       return client
     } catch (e) {
       await client.unbind().catch(() => {})
@@ -157,22 +166,28 @@ export default class Ldap {
         client = await this.connect()
       } else {
         client = await new Promise<Client & { busy?: boolean }>(resolve => {
-          this.poolQueue.push(client => {
-            resolve(client)
-          })
+          this.poolQueue.push(resolve)
         })
       }
     }
     client.busy = true
+    clearTimeout(client.idleTimer)
     if (!client.isConnected) await this.bindConnection(client)
     return client
   }
 
-  protected release (client: Client & { busy?: boolean }) {
+  protected release (client: PooledClient) {
     client.busy = false
     const nextInQueue = this.poolQueue.shift()
     if (nextInQueue) nextInQueue(client)
-    else if (this.clients.every(c => !c.busy)) this.closeRequest?.()
+    else if (this.clients.every(c => !c.busy) && this.closeRequest) this.closeRequest()
+    else {
+      client.idleTimer = setTimeout(() => {
+        if (client.busy) return
+        this.clients = this.clients.filter(c => c !== client)
+        client.unbind().catch(console.error)
+      }, this.idleTimeoutSeconds * 1000)
+    }
   }
 
   async close () {
@@ -185,6 +200,7 @@ export default class Ldap {
     }
     const clients = this.clients
     this.clients = []
+    for (const client of clients) clearTimeout(client.idleTimer)
     for (const client of clients) await client.unbind()
   }
 

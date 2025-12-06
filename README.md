@@ -28,12 +28,22 @@ export const ldap = new Ldap({
   // optional pool size (default is 5 simultaneous connections)
   poolSize: 5,
 
+  // optional pings to prevent server dropping idle pool connections (default is disabled)
+  keepaliveSeconds: 60,
+  // number of seconds to keep an idle connection in the pool (default is 300)
+  idleTimeoutSeconds: 300,
+
   // then your login and password
   bindDN: 'cn=root',
   bindCredentials: 'secret',
 
   // optional: preserve attribute case in .toJSON() (default is false, which forces lower-casing)
   preserveAttributeCase: true,
+
+  // optional StartTLS (default is false)
+  startTLS: false,
+  // optional StartTLS certificate (default is none)
+  startTLSCert: fs.readFileSync('/path/to/cert.pem'),
 
   // and any other options supported by ldapts
   timeout: 30000
@@ -57,6 +67,8 @@ environment variables:
   LDAP_DN // the DN with which to bind
   LDAP_PASS // the password for the bind DN
   LDAP_POOLSIZE (default: 5)
+  LDAP_KEEPALIVE_SECONDS // enables keepalive pings at the socket level (default: disabled)
+  LDAP_IDLE_TIMEOUT_SECONDS // number of seconds to keep an idle connection in the pool (default: 300)
   LDAP_PRESERVE_ATTRIBUTE_CASE // set truthy to disable forced lower-casing of attributes in .toJSON()
 ```
 This way, connecting is very simple, and you don't have to worry about creating a singleton pool for the

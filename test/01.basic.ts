@@ -115,4 +115,21 @@ describe('basic tests', () => {
     expect(Buffer.from(jsonObj.jpegPhoto, 'base64').length).to.be.greaterThan(0)
     await lcClient.close()
   })
+  it('should close idle connections after the idle timeout', async function () {
+    const timeoutClient = new Ldap({ idleTimeoutSeconds: 0.3 })
+    await Promise.all([
+      timeoutClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com'),
+      timeoutClient.get('cn=Hermes Conrad,ou=people,dc=planetexpress,dc=com'),
+      timeoutClient.get('cn=Turanga Leela,ou=people,dc=planetexpress,dc=com')
+    ])
+    expect((timeoutClient as any).clients).to.have.lengthOf(3)
+    await new Promise(resolve => setTimeout(resolve, 400))
+    expect((timeoutClient as any).clients).to.have.lengthOf(0)
+  })
+  it('should not crash when trying to set keepalive on connections', async () => {
+    const keepaliveClient = new Ldap({ keepaliveSeconds: 5 })
+    await keepaliveClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+    expect((keepaliveClient as any).clients).to.have.lengthOf(1)
+    await keepaliveClient.close()
+  })
 })
