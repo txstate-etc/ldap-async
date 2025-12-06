@@ -17,7 +17,7 @@ describe('group membership tests', () => {
     const after = await ldap.get(crewDN)
     expect(after.all('member')).to.include(amyDN)
   })
-  it('should bnot throw an error if we add a member to a group when they are already a member', async () => {
+  it('should not throw an error if we add a member to a group when they are already a member', async () => {
     await ldap.addMember(amyDN, crewDN)
     const after = await ldap.get(crewDN)
     expect(after.all('member')).to.include(amyDN)
@@ -93,5 +93,14 @@ describe('group membership tests', () => {
     expect(members.map(m => m.one('sn'))).to.include('Rodriguez')
     expect(members).to.have.lengthOf(4)
     expect(members.map(m => m.one('employeeType'))).to.deep.equal([undefined, undefined, undefined, undefined])
+  })
+  it('should be able to get the first two members of a group', async () => {
+    const crew = await ldap.get('cn=ship_crew,ou=people,dc=planetexpress,dc=com')
+    const members = await crew.range('member', 0, 2)
+    expect(members.values).to.have.lengthOf(2)
+    expect(members.hasMore).to.be.true
+    const allMembers = await crew.range('member', 0, 100)
+    expect(allMembers.values.length).to.be.greaterThan(2)
+    expect(allMembers.hasMore).to.be.false
   })
 })

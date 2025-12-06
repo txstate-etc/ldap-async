@@ -47,10 +47,42 @@ describe('write tests', () => {
     const after = await ldap.get(fryDN)
     expect(Object.keys(after.toJSON())).not.to.include('employeeType')
   })
+  it('should be able to add an attribute', async () => {
+    await ldap.modify(fryDN, 'add', { type: 'employeeType', values: ['Delivery boy'] })
+    const after = await ldap.get(fryDN)
+    expect(after.one('employeeType')).to.equal('Delivery boy')
+  })
   it('should be able to delete an attribute with removeAttribute', async () => {
     await ldap.removeAttribute(amyDN, 'employeeType')
     const after = await ldap.get(amyDN)
     expect(after.one('employeeType')).to.be.undefined
+  })
+  it('should be able to set an attribute with pushAttribute', async () => {
+    await ldap.pushAttribute(fryDN, 'employeeType', 'Delivery boy')
+    const after = await ldap.get(fryDN)
+    expect(after.all('employeeType')).to.include('Delivery boy')
+  })
+  it('should be able to push a second value to an attribute with pushAttribute', async () => {
+    await ldap.pushAttribute(fryDN, 'employeeType', 'Courier')
+    const after = await ldap.get(fryDN)
+    expect(after.all('employeeType')).to.include('Delivery boy')
+    expect(after.all('employeeType')).to.include('Courier')
+  })
+  it('should not push a duplicate value to an attribute with pushAttribute', async () => {
+    await ldap.pushAttribute(fryDN, 'employeeType', 'Courier')
+    const after = await ldap.get(fryDN)
+    expect(after.all('employeeType')).to.include('Courier')
+  })
+  it('should be able to remove a value from an attribute with pullAttribute', async () => {
+    await ldap.pullAttribute(fryDN, 'employeeType', 'Courier')
+    const after = await ldap.get(fryDN)
+    expect(after.all('employeeType')).not.to.include('Courier')
+    expect(after.all('employeeType')).to.include('Delivery boy')
+  })
+  it('should not error when removing a value that does not exist with pullAttribute', async () => {
+    await ldap.pullAttribute(fryDN, 'employeeType', 'Courier')
+    const after = await ldap.get(fryDN)
+    expect(after.all('employeeType')).to.include('Delivery boy')
   })
   it('should throw an error when trying to set an attribute that is not in the schema', async () => {
     try {

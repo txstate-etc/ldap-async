@@ -371,11 +371,11 @@ export default class Ldap {
     const current = await this.get(dn)
     // the ldap client only returns an array when there are 2 or more elements
     // if there is only one element, it comes back as a scalar
-    const attr = current.all(attribute)
+    const attr = await current.fullRange(attribute)
     const existingValues = new Set(Array.isArray(attr) ? attr : [attr])
-    const newValues = values.filter(v => !existingValues.has(v))
-    if (newValues.length === 0) return true
-    return await this.modify(dn, 'add', { type: attribute, values: newValues })
+    const valuesToAdd = values.filter(v => !existingValues.has(v))
+    if (valuesToAdd.length === 0) return true
+    return await this.modify(dn, 'add', { type: attribute, values: valuesToAdd })
   }
 
   /**
@@ -388,15 +388,15 @@ export default class Ldap {
     const current = await this.get(dn)
     // the ldap client only returns an array when there are 2 or more elements
     // if there is only one element, it comes back as a scalar
-    const attr = current.all(attribute)
+    const attr = await current.fullRange(attribute)
     const existingValues = new Set(Array.isArray(attr) ? attr : [attr])
-    const oldValues = values.filter(v => existingValues.has(v))
-    if (oldValues.length === 0) return true
-    return await this.modify(dn, 'delete', { type: attribute, values: oldValues })
+    const valuesToDelete = values.filter(v => existingValues.has(v))
+    if (valuesToDelete.length === 0) return true
+    return await this.modify(dn, 'delete', { type: attribute, values: valuesToDelete })
   }
 
   async removeAttribute (dn: string, attribute: string) {
-    return await this.modify(dn, 'delete', { type: attribute, values: [] })
+    return await this.modify(dn, 'delete', { type: attribute, values: undefined })
   }
 
   /**
@@ -600,22 +600,35 @@ export class LdapEntry<T = any> {
     return JSON.stringify(this.toJSON(), null, 2)
   }
 
-  async fullRange (attr: string) {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    let entry: LdapEntry = this
-    const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
-    const ret: string[] = []
-    while (true) {
-      const allVals = entry.all(attr)
-      if (allVals) ret.push(...allVals)
-      const pageOpt = entry.options(attr).find(o => o.startsWith('range='))
-      if (!pageOpt || pageOpt.endsWith('*') || !allVals) return ret
-      const [, rangeStr] = pageOpt.split('=')
-      const [low, high] = rangeStr.split('-').map(Number)
-      const pageSize = 1 + high - low
-      const newLow = allVals.length ? high + 1 : low
-      const newHigh = allVals.length ? newLow + pageSize - 1 : '*'
-      entry = (await this.client.load(this.dn, [attrWithOptions + `;range=${newLow}-${newHigh}`]))!
+  async range (attr: string, low: number, high: number) {
+    if (!this.options(attr).some(o => o.startsWith('range='))) {
+      const values = this.all(attr)
+      return { values: values.slice(low, high), hasMore: high < values.length }
     }
+    const attrWithOptions = [attr, ...this.options(attr).filter(o => !o.startsWith('range='))].join(';')
+    const entry = await this.client.load(this.dn, [attrWithOptions + `;range=${low}-${high}`])
+    const values = entry?.all(attr) ?? []
+    return { values, hasMore: entry?.options(attr).some(o => o.startsWith('range=') && !o.endsWith('*') && values.length > 0) ?? false }
+  }
+
+  async * pages (attr: string, pageSize = Number.MAX_SAFE_INTEGER) {
+    const firstPage = this.all(attr)
+    yield firstPage
+    if (!this.options(attr).some(o => o.startsWith('range=') || o.endsWith('*'))) return
+    pageSize = Math.min(pageSize, firstPage.length)
+    let low = firstPage.length
+    while (true) {
+      const high = low + pageSize - 1
+      const { values, hasMore } = await this.range(attr, low, high)
+      yield values
+      if (!hasMore) break
+      low = high + 1
+    }
+  }
+
+  async fullRange (attr: string) {
+    const ret: string[] = []
+    for await (const page of this.pages(attr)) ret.push(...page)
+    return ret
   }
 }

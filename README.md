@@ -107,6 +107,24 @@ get back an object with attribute names as the keys and the values will be a mix
 string[]. Attributes with only one value will be `string`, attributes with multiple values will
 be `string[]`. Attributes with at least one value that is not valid UTF-8 (usually binaries
 like image data) will be base64 encoded strings.
+## Paged attributes
+There's a bit of a gotcha here, in that some LDAP servers (notably Active Directory) limit
+the number of values returned for multi-valued attributes. For example, if a group has more than
+1500 members, only the first 1500 will be returned by default. If you use entry.all('member'),
+you will only get those first 1500 members and miss the rest and you won't know they are missing.
+Unfortunately, it would be expensive to always page through all multi-valued attributes, so we
+make you explicitly ask for it when you need it.
+
+If you want to be sure you get all values for a multi-valued attribute, use the `fullRange` method:
+```javascript
+const entry = await ldap.get(... whatever ...)
+const allMembers = await entry.fullRange('member') // always returns a string[]
+```
+This method is async because it may need to make additional requests to the LDAP server to page through
+all the values.
+
+It's also possible to stream the values of a multi-valued attribute using the `pages` method. See
+the "Streaming" section below for details.
 ## Writing
 ```javascript
 // change the value of a single attribute on a record
@@ -219,6 +237,15 @@ const people = ldap.getMemberStream('cn=yourgroup,ou=groups,dc=yourdomain,dc=com
 for await (const p of people) { /* do some work on the person */ }
 ```
 
+Finally, you may wish to stream the paged values of a multi-valued attribute on a single LDAP entry. You can do that with the `pages()` method on LdapEntry:
+```javascript
+const group = await ldap.get('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
+const memberStream = group.pages('member')
+for await (const memberDns of memberStream) {
+  /* do some work on the memberDns (array of member DNs) */
+}
+```
+This is a simple async iterator.
 ## Binary data
 Some LDAP services store binary data as properties of records (e.g. user profile photos). In ldap-async v1.0, we provided a `_raw` property to work around this. In v2.0 we supported it with the new `LdapEntry` return object. Just access the binary data using the `.buffer()` method.
 
