@@ -132,4 +132,24 @@ describe('basic tests', () => {
     expect((keepaliveClient as any).clients).to.have.lengthOf(1)
     await keepaliveClient.close()
   })
+  it('should be able to manipulate entries as they are retrieved', async () => {
+    const transformClient = new Ldap({
+      transformEntries: (entry) => {
+        if (entry.get('cn') === 'Bender Bending Rodriguez') {
+          entry.set('customAttribute', 'Custom Value')
+        }
+      },
+      preserveAttributeCase: true
+    })
+    try {
+      const bender = await transformClient.get('cn=Bender Bending Rodriguez,ou=people,dc=planetexpress,dc=com')
+      expect(bender.one('customAttribute')).to.equal('Custom Value')
+      expect(bender.toJSON().customAttribute).to.equal('Custom Value')
+      const fry = await transformClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+      expect(fry.one('customAttribute')).to.be.undefined
+      expect(fry.toJSON().customAttribute).to.be.undefined
+    } finally {
+      await transformClient.close()
+    }
+  })
 })

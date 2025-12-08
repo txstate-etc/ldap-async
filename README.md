@@ -40,6 +40,13 @@ export const ldap = new Ldap({
   // optional: preserve attribute case in .toJSON() (default is false, which forces lower-casing)
   preserveAttributeCase: true,
 
+  // optional: mutate incoming entries as desired; this is synchronous, if you need async work you'll
+  // probably want to do it elsewhere in your code after getting an array of entries
+  transformEntries: (entry) => {
+    // modify the entry as needed
+    entry.set('fetchedAt', new Date().toISOString())
+  },
+
   // optional StartTLS (default is false)
   startTLS: false,
   // optional StartTLS certificate (default is none)
@@ -119,6 +126,10 @@ get back an object with attribute names as the keys and the values will be a mix
 string[]. Attributes with only one value will be `string`, attributes with multiple values will
 be `string[]`. Attributes with at least one value that is not valid UTF-8 (usually binaries
 like image data) will be base64 encoded strings.
+
+Note that there is also a `.set()` method on LdapEntry. This is for creating new data on an entry for
+use elsewhere in your code (e.g. with the `transformEntries` option). It does not modify the LDAP
+server. To modify the LDAP server, use the methods described in the "Writing" section below.
 ## Paged attributes
 There's a bit of a gotcha here, in that some LDAP servers (notably Active Directory) limit
 the number of values returned for multi-valued attributes. For example, if a group has more than
@@ -272,16 +283,14 @@ for (const person of people) {
 }
 ```
 
-For another example, to convert profile photos to data URLs, you could do something like this:
-
+If you use one of the other methods like `.one()` or `.toJSON()`, it will return base64 encoded data for any binaries. So to convert profile photos to data URLs, you could do something like this:
 ```typescript
-const user = await ldap.get(userDn, { explicitBufferAttributes: ['jpegPhoto'] })
+const user = (await ldap.get<{ jpegphoto: string }>(userDn)).toJSON()
 const convertedUser = {
-  ...user.toJSON(),
-  jpegPhoto: `data:image/jpeg;base64,${user.buffer('jpegPhoto').toString('base64')}`,
+  ...user,
+  jpegphotourl: `data:image/jpeg;base64,${user.jpegphoto}`
 }
 ```
-
 ## Close the pool
 Generally you want to let the pool do its thing for the entire life of your process, but if you are sure you're done with it, you can call `await client.close()` and it will wait for all existing requests to finish, then empty the pool so that everything can be garbage collected. The pool is still valid, so if you make another request, the pool will open back up and work normally.
 

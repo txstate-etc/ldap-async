@@ -27,8 +27,9 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
     error: (...args: string[]) => void
   }
   preserveAttributeCase?: boolean
+  transformEntries?: (entry: LdapEntry) => void
 }
-const localConfig = new Set(['host', 'port', 'secure', 'poolSize', 'keepaliveSeconds', 'idleTimeoutSeconds', 'startTLSCert', 'logger', 'preserveAttributeCase'])
+const localConfig = new Set(['host', 'port', 'secure', 'poolSize', 'keepaliveSeconds', 'idleTimeoutSeconds', 'startTLSCert', 'logger', 'preserveAttributeCase', 'transformEntries'])
 
 export interface LdapChange {
   operation: string
@@ -58,10 +59,22 @@ const dnReplacements = {
 
 type ValidAttributeInput = boolean | number | string | Buffer
 
-function valToString (val: any) {
+function valToString (val: Exclude<ValidAttributeInput, Buffer>) {
   if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE'
   if (typeof val === 'number') return String(val)
   return val
+}
+
+function valToBuffer (val: ValidAttributeInput) {
+  return Buffer.isBuffer(val) ? val : Buffer.from(String(val), 'utf-8')
+}
+
+function valsToStringOrBuffer (vals: null | undefined | ValidAttributeInput | ValidAttributeInput[]): Buffer[] | string[] {
+  const values = Array.isArray(vals) ? vals : (vals != null ? [vals] : [])
+  if (values.some(v => Buffer.isBuffer(v))) {
+    return values.map(valToBuffer)
+  }
+  return (values as Exclude<ValidAttributeInput, Buffer>[]).map(valToString)
 }
 
 function searchForDN (dn: string) {
@@ -105,6 +118,7 @@ export default class Ldap {
   protected keepaliveSeconds?: number
   protected idleTimeoutSeconds: number
   protected preserveAttributeCase: boolean
+  protected transformEntries?: (entry: LdapEntry) => void
   protected bindDN: string
   protected bindCredentials: string
   protected startTLSCert?: string | Buffer | boolean
@@ -136,6 +150,7 @@ export default class Ldap {
     this.clients = []
     this.poolQueue = []
     this.preserveAttributeCase = config.preserveAttributeCase ?? !!process.env.LDAP_PRESERVE_ATTRIBUTE_CASE
+    this.transformEntries = config.transformEntries
   }
 
   protected async connect () {
@@ -285,7 +300,7 @@ export default class Ldap {
         for await (const result of searchIterator) {
           for (const entry of result.searchEntries) {
             if (canceled) break
-            const keepGoing = stream.push(new LdapEntry(entry, this))
+            const keepGoing = stream.push(new LdapEntry(entry, this, this.transformEntries))
             if (!keepGoing) {
               await new Promise(resolve => { unpause = resolve })
             }
@@ -362,8 +377,7 @@ export default class Ldap {
    * any existing values will be lost.
    */
   async setAttribute (dn: string, attribute: string, val: ValidAttributeInput | ValidAttributeInput[] | undefined) {
-    const values = (Array.isArray(val) ? val : (val == null ? [] : [val])).map(valToString)
-    return await this.modify(dn, 'replace', { type: attribute, values })
+    return await this.modify(dn, 'replace', { type: attribute, values: valsToStringOrBuffer(val) })
   }
 
   /**
@@ -374,7 +388,7 @@ export default class Ldap {
    * multiple operations to the `modify` method.
    */
   async setAttributes (dn: string, modification: Record<string, ValidAttributeInput | ValidAttributeInput[] | undefined>) {
-    const changes = Object.entries(modification).map(([attr, val]) => ({ operation: 'replace', modification: { type: attr, values: (Array.isArray(val) ? val : (val == null ? [] : [val])).map(valToString) } }))
+    const changes = Object.entries(modification).map(([attr, val]) => ({ operation: 'replace', modification: { type: attr, values: valsToStringOrBuffer(val) } }))
     return await this.modify(dn, changes)
   }
 
@@ -531,7 +545,7 @@ const binaryAttributes = ['photo', 'audio', 'jpegphoto', 'jpegPhoto', 'thumbnail
 export class LdapEntry<T = any> {
   attrs = new Map<string, { type: string, values: string[] | Buffer<ArrayBufferLike>[] }>()
   dn: string
-  constructor (data: Entry, protected client: Ldap) {
+  constructor (data: Entry, protected client: Ldap, transformEntries?: (entry: LdapEntry) => void) {
     this.dn = data.dn
     for (const [key, value] of Object.entries(data)) {
       if (value.length === 0) continue
@@ -541,6 +555,11 @@ export class LdapEntry<T = any> {
         values: (Array.isArray(value) ? value : [value]) as string[] | Buffer<ArrayBufferLike>[]
       })
     }
+    transformEntries?.(this)
+  }
+
+  set (attr: string, value: ValidAttributeInput | ValidAttributeInput[] | undefined) {
+    this.attrs.set(attr.toLocaleLowerCase(), { type: attr, values: valsToStringOrBuffer(value) })
   }
 
   get (attr: string) {
@@ -556,8 +575,9 @@ export class LdapEntry<T = any> {
   }
 
   all (attr: string) {
-    if (attr === 'dn') return [this.dn]
-    return (this.attrs.get(attr.toLocaleLowerCase())?.values ?? []).map(val => Buffer.isBuffer(val) ? val.toString('base64') : val)
+    const lcAttr = attr.toLocaleLowerCase()
+    if (lcAttr === 'dn') return [this.dn]
+    return (this.attrs.get(lcAttr)?.values ?? []).map(val => Buffer.isBuffer(val) ? val.toString('base64') : val)
   }
 
   buffer (attr: string) {
@@ -581,10 +601,8 @@ export class LdapEntry<T = any> {
     return val && Buffer.isBuffer(val)
   }
 
-  protected optionsCache: string[] | undefined
   options (attr: string) {
-    this.optionsCache ??= this.attrs.get(attr.toLocaleLowerCase())?.type.split(';').slice(1)
-    return this.optionsCache ?? []
+    return this.attrs.get(attr.toLocaleLowerCase())?.type.split(';').slice(1) ?? []
   }
 
   toJSON () {

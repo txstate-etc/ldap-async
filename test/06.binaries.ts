@@ -23,6 +23,16 @@ describe('binary tests', () => {
     expect(user.isBinary('jpegPhoto')).to.be.true
   })
 
+  it('should get base64 encoded binary data using the `.one()` method and in `.toJSON()`', async () => {
+    const user = await ldap.get<{ jpegphoto: string }>('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+    const photoB64 = user.one('jpegPhoto')!
+    const dim = sizeOf(Buffer.from(photoB64, 'base64'))
+    expect(dim.width).to.equal(429)
+    const json = user.toJSON()
+    const dim2 = sizeOf(Buffer.from(json.jpegphoto, 'base64'))
+    expect(dim2.width).to.equal(429)
+  })
+
   it('should be able to set binary data with setAttribute', async () => {
     const fry = await ldap.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
     await ldap.setAttribute('cn=Hermes Conrad,ou=people,dc=planetexpress,dc=com', 'jpegPhoto', fry.binary('jpegPhoto'))
