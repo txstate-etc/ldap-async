@@ -17,10 +17,12 @@ export interface LdapConfig extends Optional<ClientOptions, 'url'> {
   secure?: boolean
   poolSize?: number
   keepaliveSeconds?: number
+  idleTimeoutSeconds?: number
 }
 
 interface LdapClient extends Client {
   busy?: boolean
+  lastUsed?: Date
 }
 
 export interface LdapChange {
@@ -59,6 +61,8 @@ export default class Ldap {
   protected bindCredentials: string
   protected poolQueue: ((client: LdapClient) => void)[]
   protected closeRequest?: Function
+  protected idleTimeoutSeconds: number
+  protected intervalTimer?: ReturnType<typeof setInterval>
 
   constructor (config: LdapConfig = {}) {
     if (!config.url) {
@@ -81,6 +85,8 @@ export default class Ldap {
     if (!config.reconnect.failAfter) config.reconnect.failAfter = Number.MAX_SAFE_INTEGER
     if (!config.reconnect.maxDelay) config.reconnect.maxDelay = 5000
     if (!config.keepaliveSeconds) config.keepaliveSeconds = parseInt(process.env.LDAP_KEEPALIVE_SECONDS ?? '0') || undefined
+    this.idleTimeoutSeconds = config.idleTimeoutSeconds ?? (process.env.LDAP_IDLE_TIMEOUT_SECONDS ? parseInt(process.env.LDAP_IDLE_TIMEOUT_SECONDS) : 0)
+    if (isNaN(this.idleTimeoutSeconds) || this.idleTimeoutSeconds <= 0) this.idleTimeoutSeconds = 0
     this.config = config as ClientOptions
 
     this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN') || 5)
@@ -93,6 +99,7 @@ export default class Ldap {
     const client = createClient(this.config) as LdapClient
     client.busy = true
     this.clients.push(client)
+    if (this.idleTimeoutSeconds) this.intervalTimer ??= setInterval(this.idleCleanup.bind(this), 1000)
 
     try {
       return await new Promise<LdapClient>((resolve, reject) => {
@@ -145,9 +152,28 @@ export default class Ldap {
 
   protected release (client: LdapClient) {
     client.busy = false
+    client.lastUsed = new Date()
     const nextInQueue = this.poolQueue.shift()
     if (nextInQueue) nextInQueue(client)
     else if (this.clients.every(c => !c.busy)) this.closeRequest?.()
+  }
+
+  protected idleCleanup () {
+    const now = new Date()
+    this.clients = this.clients.filter(client => {
+      if (client.busy) return true
+      if (!client.lastUsed) return true
+      const idleSeconds = (now.getTime() - client.lastUsed.getTime()) / 1000
+      if (idleSeconds >= this.idleTimeoutSeconds) {
+        client.unbind()
+        return false
+      }
+      return true
+    })
+    if (this.clients.length === 0) {
+      clearInterval(this.intervalTimer)
+      this.intervalTimer = undefined
+    }
   }
 
   async close () {
@@ -160,6 +186,8 @@ export default class Ldap {
     }
     for (const client of this.clients) client.unbind()
     this.clients = []
+    clearInterval(this.intervalTimer)
+    this.intervalTimer = undefined
   }
 
   async wait () {
