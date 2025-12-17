@@ -116,7 +116,7 @@ describe('basic tests', () => {
     await lcClient.close()
   })
   it('should close idle connections after the idle timeout', async function () {
-    const timeoutClient = new Ldap({ idleTimeoutSeconds: 0.3 })
+    const timeoutClient = new Ldap({ idleTimeoutSeconds: 0.25 })
     await Promise.all([
       timeoutClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com'),
       timeoutClient.get('cn=Hermes Conrad,ou=people,dc=planetexpress,dc=com'),

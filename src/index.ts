@@ -108,7 +108,7 @@ function batchOnBase (searches: { basedn: string, attr: string, val: string }[],
   return ret
 }
 
-type PooledClient = Client & { busy?: boolean, idleTimer?: ReturnType<typeof setTimeout> }
+type PooledClient = Client & { busy?: boolean, lastUsed?: Date }
 
 export default class Ldap {
   protected connectpromise?: Promise<void>
@@ -116,7 +116,8 @@ export default class Ldap {
   protected clients: PooledClient[]
   protected poolSize: number
   protected keepaliveSeconds?: number
-  protected idleTimeoutSeconds: number
+  protected idleTimeoutSeconds?: number
+  protected intervalTimer?: ReturnType<typeof setTimeout>
   protected preserveAttributeCase: boolean
   protected transformEntries?: (entry: LdapEntry) => void
   protected bindDN: string
@@ -146,7 +147,9 @@ export default class Ldap {
     this.startTLSCert = config.startTLSCert ?? (!!process.env.LDAP_STARTTLS || (process.env.LDAP_STARTTLS_CERT ? readFileSync(process.env.LDAP_STARTTLS_CERT) : undefined))
     this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN') || 5)
     this.keepaliveSeconds = config.keepaliveSeconds ?? (parseInt(process.env.LDAP_KEEPALIVE_SECONDS ?? 'NaN') || undefined)
-    this.idleTimeoutSeconds = config.idleTimeoutSeconds ?? parseInt(process.env.LDAP_IDLE_TIMEOUT_SECONDS ?? '300')
+    this.idleTimeoutSeconds = config.idleTimeoutSeconds ?? parseInt(process.env.LDAP_IDLE_TIMEOUT_SECONDS ?? 'NaN')
+    if (isNaN(this.idleTimeoutSeconds)) this.idleTimeoutSeconds = 230
+    if (this.idleTimeoutSeconds === 0) this.idleTimeoutSeconds = undefined
     this.clients = []
     this.poolQueue = []
     this.preserveAttributeCase = config.preserveAttributeCase ?? !!process.env.LDAP_PRESERVE_ATTRIBUTE_CASE
@@ -156,6 +159,7 @@ export default class Ldap {
   protected async connect () {
     const client = Object.assign(new Client(this.config), { busy: true })
     this.clients.push(client)
+    if (this.idleTimeoutSeconds) this.intervalTimer ??= setInterval(this.idleCleanup.bind(this), Math.min(1, this.idleTimeoutSeconds / 2) * 1000)
     return await this.bindConnection(client)
   }
 
@@ -186,22 +190,33 @@ export default class Ldap {
       }
     }
     client.busy = true
-    clearTimeout(client.idleTimer)
     if (!client.isConnected) await this.bindConnection(client)
     return client
   }
 
   protected release (client: PooledClient) {
     client.busy = false
+    client.lastUsed = new Date()
     const nextInQueue = this.poolQueue.shift()
     if (nextInQueue) nextInQueue(client)
     else if (this.clients.every(c => !c.busy) && this.closeRequest) this.closeRequest()
-    else {
-      client.idleTimer = setTimeout(() => {
-        if (client.busy) return
-        this.clients = this.clients.filter(c => c !== client)
+  }
+
+  protected idleCleanup () {
+    const now = new Date()
+    this.clients = this.clients.filter(client => {
+      if (client.busy) return true
+      if (!client.lastUsed) return true
+      const idleSeconds = (now.getTime() - client.lastUsed.getTime()) / 1000
+      if (idleSeconds >= this.idleTimeoutSeconds!) {
         client.unbind().catch(console.error)
-      }, this.idleTimeoutSeconds * 1000)
+        return false
+      }
+      return true
+    })
+    if (this.clients.length === 0) {
+      clearInterval(this.intervalTimer)
+      this.intervalTimer = undefined
     }
   }
 
@@ -215,7 +230,8 @@ export default class Ldap {
     }
     const clients = this.clients
     this.clients = []
-    for (const client of clients) clearTimeout(client.idleTimer)
+    clearInterval(this.intervalTimer)
+    this.intervalTimer = undefined
     for (const client of clients) await client.unbind()
   }
 
