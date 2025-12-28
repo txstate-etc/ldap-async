@@ -557,6 +557,9 @@ export default class Ldap {
 }
 
 const binaryAttributes = ['photo', 'audio', 'jpegphoto', 'jpegPhoto', 'thumbnailphoto', 'thumbnailPhoto', 'thumbnaillogo', 'thumbnailLogo']
+const WINDOWS_FILETIME_EPOCH_DIFF = BigInt('116444736000000000')
+const FILETIME_TO_MS = BigInt(10000)
+const GENERALIZED_TIME_RE = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\.(\d+))?(Z|[+-]\d{4})$/
 
 export class LdapEntry<T = any> {
   attrs = new Map<string, { type: string, values: string[] | Buffer<ArrayBufferLike>[] }>()
@@ -580,6 +583,73 @@ export class LdapEntry<T = any> {
 
   get (attr: string) {
     return this.all(attr)[0] as string | undefined
+  }
+
+  protected static date (val: string, typeHint?: 'ldap' | 'unix' | 'millis' | 'iso' | 'windows') {
+    // automatically detect date in the following formats:
+    // YYYYMMDDHHmmSSZ, ISO8601, Unix Timestamp (seconds or milliseconds), or Windows FILETIME”
+    const genMatch = typeHint && typeHint !== 'ldap' ? undefined : val.match(GENERALIZED_TIME_RE)
+    typeHint ??= genMatch ? 'ldap'
+      : (/^\d+$/.test(val))
+        // a 12 digit number might be epoch millis 1973-2001, or epoch seconds 5138+;
+        // 1973-2001 is more likely, but neither is particularly likely and in this case
+        // LDAP is a lot less likely to contain millis so we are going to favor seconds.
+        // this way the library doesn't break in 5138 AD :)
+        ? val.length < 13 ? 'unix'
+          // a 16 digit epoch in millis would exceed javascript number limits, so we'll assume
+          // anything 16 or longer is windows filetime
+          : val.length < 16 ? 'millis'
+          : 'windows'
+        // if there were any non-digit characters, assume iso8601 - that's all we're going to support
+        : 'iso'
+
+    switch (typeHint) {
+      case 'ldap':
+        if (!genMatch) return undefined
+        const [, ys, mons, ds, hs, mins, secs, frac, zone] = genMatch
+        const year = Number(ys)
+        const month = Number(mons) - 1
+        const day = Number(ds)
+        const hour = Number(hs)
+        const minute = Number(mins)
+        const second = Number(secs)
+        const millisecond = Number(frac?.slice(0, 3) ?? '0')
+        const utcTimestamp = Date.UTC(year, month, day, hour, minute, second, millisecond)
+        if (zone && zone !== 'Z') {
+          const sign = zone[0] === '-' ? -1 : 1
+          const offsetHours = Number(zone.slice(1, 3))
+          const offsetMinutes = Number(zone.slice(3, 5))
+          const offsetTotalMinutes = offsetHours * 60 + offsetMinutes
+          const offsetTotalMilliseconds = offsetTotalMinutes * 60 * 1000 * sign
+          return new Date(utcTimestamp - offsetTotalMilliseconds)
+        }
+        return new Date(utcTimestamp)
+
+      case 'millis':
+        return new Date(Number(val))
+
+      case 'unix':
+        return new Date(Number(val) * 1000)
+
+      case 'windows': {
+        const n = BigInt(val)
+        const msSinceEpoch = (n - WINDOWS_FILETIME_EPOCH_DIFF) / FILETIME_TO_MS
+        return new Date(Number(msSinceEpoch))
+      }
+      default: // iso8601
+        const d = new Date(val)
+        if (isNaN(d.getTime())) return undefined
+        return d
+    }
+  }
+
+  dates (attr: string, typeHint?: 'ldap' | 'unix' | 'millis' | 'iso' | 'windows') {
+    const vals = this.all(attr)
+    return vals.map(v => LdapEntry.date(v, typeHint)).filter(d => d != null) as Date[]
+  }
+
+  date (attr: string, typeHint?: 'ldap' | 'unix' | 'millis' | 'iso' | 'windows') {
+    return this.dates(attr, typeHint)[0] as Date | undefined
   }
 
   one (attr: string) {
