@@ -38,6 +38,8 @@ export const ldap = new Ldap({
   bindCredentials: 'secret',
 
   // optional: preserve attribute case in .toJSON() (default is false, which forces lower-casing)
+  // we lower-case all attributes in JSON objects because LDAP attribute names are case-insensitive,
+  // and this makes it easier to work with them without worrying about case - just always use lower-case
   preserveAttributeCase: true,
 
   // optional: mutate incoming entries as desired; this is synchronous, if you need async work you'll
@@ -123,27 +125,42 @@ entry.buffers('givenName') // [Buffer.from('John', 'utf8')]
 ```
 If you want something more like the ldap-async v1.0 return object, use the `.toJSON()` method. You'll
 get back an object with attribute names as the keys and the values will be a mixture of string and
-string[]. Attributes with only one value will be `string`, attributes with multiple values will
-be `string[]`. Attributes with at least one value that is not valid UTF-8 (usually binaries
-like image data) will be base64 encoded strings.
+string[]. The attribute names will be _lower-case_: see the `preserveAttributeCase` setting. Attributes
+with only one value will be `string`, attributes with multiple values will be `string[]`. Attributes with
+at least one value that is not valid UTF-8 (usually binaries like image data) will be base64 encoded strings.
 
 Note that there is also a `.set()` method on LdapEntry. This is for creating new data on an entry for
 use elsewhere in your code (e.g. with the `transformEntries` option). It does not modify the LDAP
 server. To modify the LDAP server, use the methods described in the "Writing" section below.
+
+### Working with dates
+We also have convenience methods for parsing dates out of LDAP date strings, `.date()` and `.dates()`, which
+work similarly to `.get()` and `.all()`, but return `Date` objects.
+```javascript
+const createdAt = entry.date('createTimestamp')
+```
+These methods automatically detect various date formats: LDAP standard generalized time format,
+windows filetime timestamps (common in Active Directory), unix epoch timestamps, and iso 8601 date strings.
+You can also avoid the autodetection by providing `'ldap'`, `'windows'`, `'unix'`, `'millis'` (unix timestamp
+including milliseconds), or `'iso'` as the second parameter.
+```javascript
+const createdAt = entry.date('pwdLastSet', 'windows') // pwdLastSet is common in Active Directory
+```
 ## Paged attributes
-There's a bit of a gotcha here, in that some LDAP servers (notably Active Directory) limit
-the number of values returned for multi-valued attributes. For example, if a group has more than
-1500 members, only the first 1500 will be returned by default. If you use entry.all('member'),
-you will only get those first 1500 members and miss the rest and you won't know they are missing.
-Unfortunately, it would be expensive to always page through all multi-valued attributes, so we
-make you explicitly ask for it when you need it.
+There's a bit of a gotcha when accessing multi-value attributes with `.all()` - some LDAP servers (notably
+Active Directory) limit the number of values returned. For example, if a group has more than 1500 members,
+only the first 1500 will be returned by default. If you use entry.all('member'), you will only get those first
+1500 members and miss the rest and you won't know they are missing.
+
+Unfortunately, it would be expensive (and asynchronous) to always page through all multi-valued attributes,
+so we make you explicitly ask for it when you need it.
 
 If you want to be sure you get all values for a multi-valued attribute, use the `fullRange` method:
 ```javascript
 const entry = await ldap.get(... whatever ...)
 const allMembers = await entry.fullRange('member') // always returns a string[]
 ```
-This method is async because it may need to make additional requests to the LDAP server to page through
+This method must be awaited because it may need to make additional requests to the LDAP server to page through
 all the values.
 
 It's also possible to stream the values of a multi-valued attribute using the `pages` method. See
