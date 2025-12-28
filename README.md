@@ -30,8 +30,9 @@ export const ldap = new Ldap({
 
   // optional pings to prevent server dropping idle pool connections (default is disabled)
   keepaliveSeconds: 60,
-  // number of seconds to keep an idle connection in the pool (default is 300)
-  idleTimeoutSeconds: 300,
+  // number of seconds to keep an idle connection in the pool (default is 230 because
+  // Active Directory in Azure drops at 240)
+  idleTimeoutSeconds: 230,
 
   // then your login and password
   bindDN: 'cn=root',
@@ -77,7 +78,7 @@ environment variables:
   LDAP_PASS // the password for the bind DN
   LDAP_POOLSIZE (default: 5)
   LDAP_KEEPALIVE_SECONDS // enables keepalive pings at the socket level (default: disabled)
-  LDAP_IDLE_TIMEOUT_SECONDS // number of seconds to keep an idle connection in the pool (default: 300)
+  LDAP_IDLE_TIMEOUT_SECONDS // number of seconds to keep an idle connection in the pool (default: 230)
   LDAP_PRESERVE_ATTRIBUTE_CASE // set truthy to disable forced lower-casing of attributes in .toJSON()
 ```
 This way, connecting is very simple, and you don't have to worry about creating a singleton pool for the
