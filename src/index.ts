@@ -463,7 +463,7 @@ export default class Ldap {
     return await this.pullAttribute(groupdn, 'member', memberdn)
   }
 
-  private async getMemberRecur (ret: Readable, g: LdapEntry, groupsExplored: Set<string>, attributes?: SearchOptions['attributes']) {
+  private async getMemberRecur (ret: Readable, g: LdapEntry, groupsExplored: Set<string>, seenDN: Set<string> | undefined, attributes?: SearchOptions['attributes']) {
     const members = await g.fullRange('member')
     const batchMap = batchOnBase(members.map(searchForDN))
     const groups: LdapEntry[] = []
@@ -474,13 +474,16 @@ export default class Ldap {
           const isGroup = m.one('member') != null
           if (isGroup) groups.push(m)
           else {
-            const feedme = ret.push(m)
-            if (!feedme) {
-              await new Promise(resolve => {
-                ret.once('resume', () => {
-                  resolve(undefined)
+            if (!seenDN?.has(m.dn)) {
+              seenDN?.add(m.dn)
+              const feedme = ret.push(m)
+              if (!feedme) {
+                await new Promise(resolve => {
+                  ret.once('resume', () => {
+                    resolve(undefined)
+                  })
                 })
-              })
+              }
             }
           }
         }
@@ -489,24 +492,38 @@ export default class Ldap {
     for (const sg of groups) {
       if (!groupsExplored.has(sg.dn)) {
         groupsExplored.add(sg.dn)
-        await this.getMemberRecur(ret, sg, groupsExplored, attributes)
+        await this.getMemberRecur(ret, sg, groupsExplored, seenDN, attributes)
       }
     }
   }
 
-  getMemberStream<T = any> (groupdn: string, attributes?: SearchOptions['attributes']) {
+  /**
+   * Return a stream of all non-group members of a group, recursively expanding any nested groups.
+   * If the `deduplicate` option is set to true, each member will only be returned once even
+   * if they are in multiple nested groups.
+   *
+   * `deduplicate` is false by default, because it uses potentially unlimited memory, and the user
+   * was streaming, so they were trying to avoid runaway memory use.
+   */
+  getMemberStream<T = any> (groupdn: string, attributes?: SearchOptions['attributes'], options?: { deduplicate?: boolean }) {
     attributes = attributes?.length ? attributes.filter(attr => attr !== 'member').concat(['member']) : undefined
     const ret = new Readable({ objectMode: true, highWaterMark: 100 }) as GenericReadable<LdapEntry<T>>
     ret._read = () => { ret.resume() }
+    const seenDN = options?.deduplicate ? new Set<string>() : undefined
     this.get(groupdn, { attributes: ['member'] }).then(async g => {
-      await this.getMemberRecur(ret, g, new Set([groupdn]), attributes)
+      await this.getMemberRecur(ret, g, new Set([groupdn]), seenDN, attributes)
       ret.push(null)
     }).catch(e => ret.destroy(e))
     return ret
   }
 
+  /**
+   * Return all non-group members of a group, recursively expanding any nested groups.
+   *
+   * Each member will only be returned once even if they are in multiple nested groups.
+   */
   async getMembers<T = any> (groupdn: string, attributes?: SearchOptions['attributes']) {
-    const strm = this.getMemberStream<T>(groupdn, attributes)
+    const strm = this.getMemberStream<T>(groupdn, attributes, { deduplicate: true })
     const members: LdapEntry<T>[] = []
     for await (const m of strm) members.push(m)
     return members

@@ -103,4 +103,11 @@ describe('group membership tests', () => {
     expect(allMembers.values.length).to.be.greaterThan(2)
     expect(allMembers.hasMore).to.be.false
   })
+  it('should deduplicate members when getting full membership of a group with nested groups', async () => {
+    // add Fry back to the test group, now he's in as a direct member and via the ship_crew group
+    await ldap.addMember(fryDN, testGrpDN)
+    const members = await ldap.getMembers(testGrpDN)
+    const fryMembers = members.filter(m => m.dn === fryDN)
+    expect(fryMembers).to.have.lengthOf(1)
+  })
 })
