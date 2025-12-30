@@ -251,6 +251,8 @@ export default class Ldap {
   }
 
   async get<T = any> (base: string, options?: SearchOptions, controls?: Control | Control[]) {
+    options ??= {}
+    options.scope ??= 'base'
     return (await this.search<T>(base, options, controls))[0]
   }
 

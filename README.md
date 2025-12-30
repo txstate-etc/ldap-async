@@ -103,6 +103,12 @@ const ldap = require('ldap-async/client').default
 Convenience methods are provided that allow you to specify the kind of operation you are about
 to do and the type of return data you expect.
 ## Querying
+There are four main ways to query LDAP data:
+* `get` - get a single entry by DN, this sets the search scope to 'base' by default and returns the
+  first result if multiple are found
+* `search` - search for multiple entries and return them all as an array, search scope defaults to 'sub'
+* `stream` - search for multiple entries and return them as a stream (async iterator), search scope defaults to 'sub'
+* `getMembers` - get all non-group members of a group (nested groups are recursively expanded)
 ```javascript
 const person = await ldap.get('cn=you,ou=people,dc=yourdomain,dc=com')
 console.log(person.toJSON()) // { givenName: 'John', ... }
@@ -110,7 +116,11 @@ console.log(person.toJSON()) // { givenName: 'John', ... }
 const people = await ldap.search('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
 console.log(people.map(p => p.toJSON())) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
 
-// return full LdapEntry objects for members of a group and members of all subgroups
+const people = await ldap.stream('ou=people,dc=yourdomain,dc=com', { scope: 'sub', filter: 'objectclass=person' })
+for await (const p of people) {
+  console.log(p.toJSON()) // { givenName: 'John', ... }
+}
+
 const people = await ldap.getMembers('cn=yourgroup,ou=groups,dc=yourdomain,dc=com')
 console.log(people.map(p => p.toJSON())) // [{ givenName: 'John', ... }, { givenName: 'Mary', ... }]
 ```
