@@ -2,25 +2,40 @@
   "name": "ldap-async",
   "version": "3.1.1",
   "description": "A wrapper around ldapts to provide pooling, config by environment, and other conveniences.",
+  "type": "commonjs",
   "exports": {
     ".": {
-      "require": "./dist/index.js",
-      "import": "./dist-esm/index.js"
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "import": {
+        "types": "./dist-esm/index.d.ts",
+        "default": "./dist-esm/index.js"
+      }
     },
     "./client": {
-      "require": "./dist/client.js",
-      "import": "./dist-esm/client.js"
+      "require": {
+        "types": "./dist/client.d.ts",
+        "default": "./dist/client.js"
+      },
+      "import": {
+        "types": "./dist-esm/client.d.ts",
+        "default": "./dist-esm/client.js"
+      }
     }
   },
-  "types": "dist/index.d.ts",
+  "types": "./dist-esm/index.d.ts",
   "typesVersions": {
     "*": {
-      "client": ["./dist/client.d.ts"]
+      "client": [
+        "./dist-esm/client.d.ts"
+      ]
     }
   },
   "scripts": {
     "prepublishOnly": "npm run build",
-    "build": "rm -rf dist && tsc",
+    "build": "rm -rf dist && tsc && cp dist/*.d.ts dist-esm/",
     "test": "./test.sh",
     "build:test": "rm -rf ./dist-test && tsc -p tsconfig.test.json",
     "test:integration": "npm run build:test && node --enable-source-maps --test --test-isolation=none dist-test/test/*.js",

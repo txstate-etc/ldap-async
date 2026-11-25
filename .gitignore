@@ -107,3 +107,4 @@ lib
 docker-compose*override.yml
 /test/range.ts
 dist-test
+dist-esm/*.d.ts
