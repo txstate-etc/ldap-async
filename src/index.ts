@@ -127,7 +127,12 @@ export default class Ldap {
   protected bindDN: string
   protected bindCredentials: string
   protected startTLSCert?: string | Buffer | boolean
-  protected poolQueue: ((client: Client & { busy?: boolean, lastUsed?: Date }) => void)[]
+  /**
+   * Callers waiting for a connection. Each is resolved with a client when one is released, or
+   * with undefined when a connection fails and leaves room in the pool, in which case the
+   * waiter should try to open a connection of its own.
+   */
+  protected poolQueue: ((client?: PooledClient) => void)[]
   protected closeRequest?: (value?: any) => void
   private console: NonNullable<LdapConfig['logger']>
 
@@ -178,23 +183,30 @@ export default class Ldap {
     } catch (e) {
       await client.unbind().catch(() => {})
       this.clients = this.clients.filter(c => c !== client)
+      // this client will never be released, so hand its slot to the next waiter (if any)
+      // or we could strand waiters forever during an outage
+      const nextInQueue = this.poolQueue.shift()
+      if (nextInQueue) nextInQueue()
+      else if (this.clients.every(c => !c.busy) && this.closeRequest) this.closeRequest()
       throw e
     }
   }
 
   protected async getClient () {
     let client = this.clients.find(c => !c.busy)
-    if (!client) {
+    while (!client) {
       if (this.clients.length < this.poolSize) {
         client = await this.connect()
       } else {
-        client = await new Promise<Client & { busy?: boolean }>(resolve => {
+        client = await new Promise<PooledClient | undefined>(resolve => {
           this.poolQueue.push(resolve)
-        })
+        }) ?? this.clients.find(c => !c.busy)
       }
     }
     client.busy = true
-    if (!client.isConnected) await this.bindConnection(client)
+    // isBound rather than isConnected: ldapts transparently reconnects a dropped connection
+    // without authenticating, so a connected client may still need to be bound
+    if (!client.isBound) await this.bindConnection(client)
     return client
   }
 

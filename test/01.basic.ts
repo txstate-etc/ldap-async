@@ -119,6 +119,34 @@ describe('basic tests', () => {
     expect((keepaliveClient as any).clients).to.have.lengthOf(1)
     await keepaliveClient.close()
   })
+  it('should reject every queued request instead of hanging when connections fail', async () => {
+    const badClient = new Ldap({ poolSize: 1, bindCredentials: 'wrongpassword' } as any)
+    const results = await Promise.race([
+      Promise.allSettled([
+        badClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com'),
+        badClient.get('cn=Hermes Conrad,ou=people,dc=planetexpress,dc=com'),
+        badClient.get('cn=Turanga Leela,ou=people,dc=planetexpress,dc=com')
+      ]),
+      new Promise<'timeout'>(resolve => setTimeout(() => { resolve('timeout') }, 2000))
+    ])
+    expect(results).not.to.equal('timeout')
+    expect((results as PromiseSettledResult<any>[]).every(r => r.status === 'rejected')).to.be.true
+    expect((badClient as any).clients).to.have.lengthOf(0)
+    await badClient.close()
+  })
+  it('should rebind a pooled connection that reconnected without authenticating', async () => {
+    const rebindClient = new Ldap({ poolSize: 1 })
+    await rebindClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+    const client = (rebindClient as any).clients[0]
+    // drop the connection, then let ldapts transparently reconnect it anonymously
+    await client.unbind()
+    await client.search('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com', { scope: 'base' }).catch(() => {})
+    expect(client.isConnected).to.be.true
+    expect(client.isBound).to.be.false
+    await rebindClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com')
+    expect(client.isBound).to.be.true
+    await rebindClient.close()
+  })
   it('should be able to manipulate entries as they are retrieved', async () => {
     const transformClient = new Ldap({
       transformEntries: entry => {
