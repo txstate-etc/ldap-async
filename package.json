@@ -24,8 +24,11 @@
     "mocha": "mocha -r ts-node/register test/**/*.ts",
     "test": "./test.sh"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
-    "ldapts": "^8.0.4"
+    "ldapts": "^9.3.3"
   },
   "devDependencies": {
     "@types/chai": "^4.2.14",
