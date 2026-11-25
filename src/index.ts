@@ -1,6 +1,9 @@
 import { Attribute, Client, type ClientOptions, type SearchOptions, Change, type AttributeOptions, type Control, type Entry, type Filter, EqualityFilter, OrFilter } from 'ldapts'
 import { readFileSync } from 'node:fs'
 import { Readable } from 'node:stream'
+import { connectionWaitHasSubscribers, parseServerUrl, publishConnectionWait, subscribedChannel, type LdapTraceContext, type ServerInfo, type TraceInfo } from './tracing.js'
+
+export type { ConnectionWaitMessage, LdapOperation, LdapTraceContext } from './tracing.js'
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
 // derive from Readable's own iterator type so we stay compatible with whatever
@@ -134,6 +137,8 @@ export default class Ldap {
    */
   protected poolQueue: ((client?: PooledClient) => void)[]
   protected closeRequest?: (value?: any) => void
+  /** Parsed once from the url, for the tracing channel. */
+  protected serverInfo: ServerInfo
   private console: NonNullable<LdapConfig['logger']>
 
   constructor (config: LdapConfig = {}) {
@@ -145,6 +150,7 @@ export default class Ldap {
     }
 
     this.console = config.logger ?? console
+    this.serverInfo = parseServerUrl(config.url)
 
     this.bindDN = (config as any).bindDN ?? process.env.LDAP_DN ?? ''
     this.bindCredentials = (config as any).bindCredentials ?? process.env.LDAP_PASSWORD ?? process.env.LDAP_PASS ?? ''
@@ -193,6 +199,7 @@ export default class Ldap {
   }
 
   protected async getClient () {
+    const start = performance.now()
     let client = this.clients.find(c => !c.busy)
     while (!client) {
       if (this.clients.length < this.poolSize) {
@@ -207,6 +214,10 @@ export default class Ldap {
     // isBound rather than isConnected: ldapts transparently reconnects a dropped connection
     // without authenticating, so a connected client may still need to be bound
     if (!client.isBound) await this.bindConnection(client)
+    if (connectionWaitHasSubscribers()) {
+      const { serverAddress, serverPort } = this.serverInfo
+      publishConnectionWait({ poolName: `${serverAddress ?? ''}:${serverPort ?? ''}`, serverAddress, serverPort, duration: performance.now() - start })
+    }
     return client
   }
 
@@ -320,41 +331,85 @@ export default class Ldap {
     stream.on('close', () => { canceled = true })
     const stacktraceError: { stack?: string } = {}
     Error.captureStackTrace(stacktraceError, this.stream)
+    // tracePromise doesn't fit a stream, so publish the same lifecycle by hand: start/end around
+    // starting the search, then error (if any) followed by asyncStart/asyncEnd once the stream closes
+    const channel = subscribedChannel()
+    const ctx = channel ? this.traceContext({ operation: 'search', dn: base, filter: options.filter?.toString() ?? '(objectclass=*)', scope: options.scope ?? 'sub' }) : undefined
+    let entries = 0
     const sendError = (e: any) => {
       if (canceled) return
       e.clientstack = e.stack
       e.stack = (stacktraceError.stack ?? '').replace(/^Error:/, `Error: ${e.message as string ?? ''}`)
-      stream.emit('error', e)
+      if (channel && ctx) {
+        ctx.error = e
+        channel.error.publish(ctx)
+      }
+      // destroy rather than emit, so the stream closes and its span ends even if the consumer keeps reading
+      stream.destroy(e)
     }
 
-    this.getClient().then(async client => {
+    const run = async () => {
       try {
-        const searchIterator = client.searchPaginated(base, options ?? {}, controls ?? [])
-        for await (const result of searchIterator) {
-          for (const entry of result.searchEntries) {
-            if (canceled) break
-            const keepGoing = stream.push(new LdapEntry(entry, this, this.transformEntries))
-            if (!keepGoing) {
-              await new Promise(resolve => { unpause = resolve })
+        const client = await this.getClient()
+        try {
+          const searchIterator = client.searchPaginated(base, options ?? {}, controls ?? [])
+          for await (const result of searchIterator) {
+            for (const entry of result.searchEntries) {
+              if (canceled) break
+              entries++
+              const keepGoing = stream.push(new LdapEntry(entry, this, this.transformEntries))
+              if (!keepGoing) {
+                await new Promise(resolve => { unpause = resolve })
+              }
             }
+            if (canceled) break
           }
-          if (canceled) break
+          stream.push(null)
+        } finally {
+          this.release(client)
         }
-        stream.push(null)
-      } finally {
-        this.release(client)
+      } catch (e: any) {
+        sendError(e)
       }
-    }).catch(sendError)
+    }
+
+    if (channel && ctx) {
+      stream.once('close', () => {
+        ctx.entries = entries
+        channel.asyncStart.publish(ctx)
+        channel.asyncEnd.publish(ctx)
+      })
+      channel.start.runStores(ctx, () => {
+        try {
+          void run()
+        } finally {
+          channel.end.publish(ctx)
+        }
+      })
+    } else void run()
     return stream
   }
 
-  protected async useClient<T> (callback: (client: Client) => Promise<T>) {
-    const client = await this.getClient()
-    try {
-      return await callback(client)
-    } finally {
-      this.release(client)
+  protected traceContext (info: TraceInfo): LdapTraceContext {
+    return { ...info, ...this.serverInfo }
+  }
+
+  /**
+   * Runs callback with a client from the pool. Given `trace`, the whole thing, including any
+   * wait for a free connection, is published on the `ldap-async:operation` tracing channel.
+   */
+  protected async useClient<T> (callback: (client: Client) => Promise<T>, trace?: TraceInfo) {
+    const run = async () => {
+      const client = await this.getClient()
+      try {
+        return await callback(client)
+      } finally {
+        this.release(client)
+      }
     }
+    const channel = trace && subscribedChannel()
+    if (!channel) return await run()
+    return await channel.tracePromise(run, this.traceContext(trace))
   }
 
   /**
@@ -372,7 +427,7 @@ export default class Ldap {
         : [new Change({ operation: operationOrChanges as 'add' | 'delete' | 'replace', modification: modification instanceof Attribute ? modification : new Attribute(modification) })]
       await client.modify(dn, changes)
       return true
-    })
+    }, { operation: 'modify', dn })
   }
 
   /**
@@ -382,7 +437,7 @@ export default class Ldap {
     return await this.useClient(async client => {
       await client.add(newDn, entry)
       return true
-    })
+    }, { operation: 'add', dn: newDn })
   }
 
   /**
@@ -392,7 +447,7 @@ export default class Ldap {
     return await this.useClient(async client => {
       await client.del(dn)
       return true
-    })
+    }, { operation: 'delete', dn })
   }
 
   /**
@@ -402,7 +457,7 @@ export default class Ldap {
     return await this.useClient(async client => {
       await client.modifyDN(oldDn, newDn)
       return true
-    })
+    }, { operation: 'modifyDN', dn: oldDn, newDn })
   }
 
   /**

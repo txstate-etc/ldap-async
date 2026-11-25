@@ -319,6 +319,25 @@ const convertedUser = {
   jpegphotourl: `data:image/jpeg;base64,${user.jpegphoto}`
 }
 ```
+## Tracing
+Every round trip to the server is published on a [TracingChannel](https://nodejs.org/api/diagnostics_channel.html#class-tracingchannel) named `ldap-async:operation`, so a tracing library can make a span per operation without this library depending on it. When nobody subscribes, nothing is published. The context looks like this:
+```javascript
+{
+  operation: 'search', // or 'add', 'modify', 'delete', 'modifyDN'
+  dn: 'ou=people,dc=yourdomain,dc=com', // the search base, or the entry being written
+  filter: '(&(objectClass=person)(givenName=Hubert))', // search only, values included
+  scope: 'sub', // search only
+  newDn: 'cn=Hubert', // modifyDN only
+  serverAddress: 'ldap.yourdomain.com',
+  serverPort: 636,
+  entries: 1, // search only, set by the time asyncStart fires
+  error // set on failure: the same error your code receives
+}
+```
+Timing includes waiting for a pool connection, so a server outage shows up as failed operations. A stream's operation lasts until the stream closes. `dn` and `filter` usually identify people, so I'd record the filter with its values replaced by `?` and leave the DN out.
+
+Each time an operation gets a pool connection, `{ poolName, serverAddress, serverPort, duration }` (duration in milliseconds) is also published on the plain channel `ldap-async:connection:wait`. That tells you whether slowness is the server or a `poolSize` that's too small.
+
 ## Close the pool
 Generally you want to let the pool do its thing for the entire life of your process, but if you are sure you're done with it, you can call `await client.close()` and it will wait for all existing requests to finish, then empty the pool so that everything can be garbage collected. The pool is still valid, so if you make another request, the pool will open back up and work normally.
 
