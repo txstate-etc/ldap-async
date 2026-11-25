@@ -3,10 +3,14 @@ import { readFileSync } from 'node:fs'
 import { Readable } from 'node:stream'
 
 type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>
-interface StreamIterator <T> {
+// derive from Readable's own iterator type so we stay compatible with whatever
+// the installed @types/node requires of it (e.g. Symbol.asyncDispose in v26+)
+type ReadableIterator = ReturnType<Readable[typeof Symbol.asyncIterator]>
+
+interface StreamIterator<T> extends Omit<ReadableIterator, 'next' | 'return' | typeof Symbol.asyncIterator> {
   [Symbol.asyncIterator]: () => StreamIterator<T>
-  next: () => Promise<{ done?: false, value: T }>
-  return: () => Promise<{ done: true, value: T }>
+  next: () => Promise<IteratorResult<T, undefined>>
+  return: () => Promise<IteratorReturnResult<undefined>>
 }
 interface GenericReadable<T> extends Readable {
   [Symbol.asyncIterator]: () => StreamIterator<T>
@@ -145,9 +149,9 @@ export default class Ldap {
     }
 
     this.startTLSCert = config.startTLSCert ?? (!!process.env.LDAP_STARTTLS || (process.env.LDAP_STARTTLS_CERT ? readFileSync(process.env.LDAP_STARTTLS_CERT) : undefined))
-    this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN') || 5)
-    this.keepaliveSeconds = config.keepaliveSeconds ?? (parseInt(process.env.LDAP_KEEPALIVE_SECONDS ?? 'NaN') || undefined)
-    this.idleTimeoutSeconds = config.idleTimeoutSeconds ?? parseInt(process.env.LDAP_IDLE_TIMEOUT_SECONDS ?? 'NaN')
+    this.poolSize = config.poolSize ?? (parseInt(process.env.LDAP_POOLSIZE ?? 'NaN', 10) || 5)
+    this.keepaliveSeconds = config.keepaliveSeconds ?? (parseInt(process.env.LDAP_KEEPALIVE_SECONDS ?? 'NaN', 10) || undefined)
+    this.idleTimeoutSeconds = config.idleTimeoutSeconds ?? parseInt(process.env.LDAP_IDLE_TIMEOUT_SECONDS ?? 'NaN', 10)
     if (isNaN(this.idleTimeoutSeconds)) this.idleTimeoutSeconds = 230
     if (this.idleTimeoutSeconds === 0) this.idleTimeoutSeconds = undefined
     this.clients = []
@@ -283,7 +287,7 @@ export default class Ldap {
     return entries.get(dn)
   }
 
-  async search<T = any>(base: string, options?: SearchOptions, controls?: Control | Control[]) {
+  async search<T = any> (base: string, options?: SearchOptions, controls?: Control | Control[]) {
     const stream = this.stream<T>(base, options, controls)
     const results: LdapEntry<T>[] = []
     for await (const result of stream) {
@@ -292,11 +296,10 @@ export default class Ldap {
     return results
   }
 
-  stream<T = any> (base: string, options: SearchOptions = {}, controls?: Control | Array<Control>) {
+  stream<T = any> (base: string, options: SearchOptions = {}, controls?: Control | Control[]) {
     if (options.paged == null || options.paged === true) options.paged = {}
-    if (typeof options.paged === 'object') {
-      if (!options.paged.pageSize) options.paged.pageSize = 200
-    }
+    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- a pageSize of 0 should also get the default
+    if (typeof options.paged === 'object') options.paged.pageSize ||= 200
     options.explicitBufferAttributes ??= binaryAttributes
     let canceled = false
     let unpause: ((value: any) => void) | undefined
@@ -333,7 +336,7 @@ export default class Ldap {
     return stream
   }
 
-  protected async useClient<T>(callback: (client: Client) => Promise<T>) {
+  protected async useClient<T> (callback: (client: Client) => Promise<T>) {
     const client = await this.getClient()
     try {
       return await callback(client)
@@ -463,6 +466,7 @@ export default class Ldap {
     return await this.pullAttribute(groupdn, 'member', memberdn)
   }
 
+  // eslint-disable-next-line @typescript-eslint/max-params -- private recursive helper
   private async getMemberRecur (ret: Readable, g: LdapEntry, groupsExplored: Set<string>, seenDN: Set<string> | undefined, attributes?: SearchOptions['attributes']) {
     const members = await g.fullRange('member')
     const batchMap = batchOnBase(members.map(searchForDN))
@@ -473,17 +477,15 @@ export default class Ldap {
         for await (const m of strm) {
           const isGroup = m.one('member') != null
           if (isGroup) groups.push(m)
-          else {
-            if (!seenDN?.has(m.dn)) {
-              seenDN?.add(m.dn)
-              const feedme = ret.push(m)
-              if (!feedme) {
-                await new Promise(resolve => {
-                  ret.once('resume', () => {
-                    resolve(undefined)
-                  })
+          else if (!seenDN?.has(m.dn)) {
+            seenDN?.add(m.dn)
+            const feedme = ret.push(m)
+            if (!feedme) {
+              await new Promise(resolve => {
+                ret.once('resume', () => {
+                  resolve(undefined)
                 })
-              }
+              })
             }
           }
         }
@@ -513,7 +515,7 @@ export default class Ldap {
     this.get(groupdn, { attributes: ['member'] }).then(async g => {
       await this.getMemberRecur(ret, g, new Set([groupdn]), seenDN, attributes)
       ret.push(null)
-    }).catch(e => ret.destroy(e))
+    }).catch((e: unknown) => ret.destroy(e as Error))
     return ret
   }
 
@@ -581,7 +583,7 @@ const FILETIME_TO_MS = BigInt(10000)
 const GENERALIZED_TIME_RE = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\.(\d+))?(Z|[+-]\d{4})$/
 
 export class LdapEntry<T = any> {
-  attrs = new Map<string, { type: string, values: string[] | Buffer<ArrayBufferLike>[] }>()
+  attrs = new Map<string, { type: string, values: string[] | Buffer[] }>()
   dn: string
   constructor (data: Entry, protected client: Ldap, transformEntries?: (entry: LdapEntry) => void) {
     this.dn = data.dn
@@ -590,7 +592,7 @@ export class LdapEntry<T = any> {
       const attrWithoutOptions = key.split(';', 2)[0].toLocaleLowerCase()
       this.attrs.set(attrWithoutOptions, {
         type: key,
-        values: (Array.isArray(value) ? value : [value]) as string[] | Buffer<ArrayBufferLike>[]
+        values: (Array.isArray(value) ? value : [value]) as string[] | Buffer[]
       })
     }
     transformEntries?.(this)
@@ -607,23 +609,28 @@ export class LdapEntry<T = any> {
   protected static date (val: string, typeHint?: 'ldap' | 'unix' | 'millis' | 'iso' | 'windows') {
     // automatically detect date in the following formats:
     // YYYYMMDDHHmmSSZ, ISO8601, Unix Timestamp (seconds or milliseconds), or Windows FILETIME”
-    const genMatch = typeHint && typeHint !== 'ldap' ? undefined : val.match(GENERALIZED_TIME_RE)
-    typeHint ??= genMatch ? 'ldap'
+    const genMatch = typeHint && typeHint !== 'ldap'
+      ? undefined
+      : GENERALIZED_TIME_RE.exec(val)
+    typeHint ??= genMatch
+      ? 'ldap'
       : (/^\d+$/.test(val))
         // a 12 digit number might be epoch millis 1973-2001, or epoch seconds 5138+;
         // 1973-2001 is more likely, but neither is particularly likely and in this case
         // LDAP is a lot less likely to contain millis so we are going to favor seconds.
         // this way the library doesn't break in 5138 AD :)
-        ? val.length < 13 ? 'unix'
+        ? val.length < 13
+          ? 'unix'
           // a 16 digit epoch in millis would exceed javascript number limits, so we'll assume
           // anything 16 or longer is windows filetime
-          : val.length < 16 ? 'millis'
-          : 'windows'
+          : val.length < 16
+            ? 'millis'
+            : 'windows'
         // if there were any non-digit characters, assume iso8601 - that's all we're going to support
         : 'iso'
 
     switch (typeHint) {
-      case 'ldap':
+      case 'ldap': {
         if (!genMatch) return undefined
         const [, ys, mons, ds, hs, mins, secs, frac, zone] = genMatch
         const year = Number(ys)
@@ -635,7 +642,7 @@ export class LdapEntry<T = any> {
         const millisecond = Number(frac?.slice(0, 3) ?? '0')
         const utcTimestamp = Date.UTC(year, month, day, hour, minute, second, millisecond)
         if (zone && zone !== 'Z') {
-          const sign = zone[0] === '-' ? -1 : 1
+          const sign = zone.startsWith('-') ? -1 : 1
           const offsetHours = Number(zone.slice(1, 3))
           const offsetMinutes = Number(zone.slice(3, 5))
           const offsetTotalMinutes = offsetHours * 60 + offsetMinutes
@@ -643,6 +650,7 @@ export class LdapEntry<T = any> {
           return new Date(utcTimestamp - offsetTotalMilliseconds)
         }
         return new Date(utcTimestamp)
+      }
 
       case 'millis':
         return new Date(Number(val))
@@ -655,16 +663,17 @@ export class LdapEntry<T = any> {
         const msSinceEpoch = (n - WINDOWS_FILETIME_EPOCH_DIFF) / FILETIME_TO_MS
         return new Date(Number(msSinceEpoch))
       }
-      default: // iso8601
+      default: { // iso8601
         const d = new Date(val)
         if (isNaN(d.getTime())) return undefined
         return d
+      }
     }
   }
 
   dates (attr: string, typeHint?: 'ldap' | 'unix' | 'millis' | 'iso' | 'windows') {
     const vals = this.all(attr)
-    return vals.map(v => LdapEntry.date(v, typeHint)).filter(d => d != null) as Date[]
+    return vals.map(v => LdapEntry.date(v, typeHint)).filter((d): d is Date => d != null)
   }
 
   date (attr: string, typeHint?: 'ldap' | 'unix' | 'millis' | 'iso' | 'windows') {
@@ -686,7 +695,7 @@ export class LdapEntry<T = any> {
   }
 
   buffer (attr: string) {
-    return this.buffers(attr)[0] as Buffer<ArrayBufferLike> | undefined
+    return this.buffers(attr)[0] as Buffer | undefined
   }
 
   buffers (attr: string) {
@@ -719,13 +728,11 @@ export class LdapEntry<T = any> {
       const values = this.attrs.get(lcAttr)?.values
       if (values?.length) {
         if (this.isBinary(baseAttr)) {
-          const buffers = values as Buffer<ArrayBufferLike>[]
+          const buffers = values as Buffer[]
           if (buffers.length === 1) obj[resolvedAttr] = buffers[0].toString('base64')
           else obj[resolvedAttr] = buffers.map((b: Buffer) => b.toString('base64'))
-        } else {
-          if (values.length === 1) obj[resolvedAttr] = values[0]
-          else obj[resolvedAttr] = values
-        }
+        } else if (values.length === 1) obj[resolvedAttr] = values[0]
+        else obj[resolvedAttr] = values
       }
     }
     return obj as T
@@ -750,7 +757,7 @@ export class LdapEntry<T = any> {
     return { values, hasMore: entry?.options(attr).some(o => o.startsWith('range=') && !o.endsWith('*') && values.length > 0) ?? false }
   }
 
-  async * pages (attr: string, pageSize = Number.MAX_SAFE_INTEGER) {
+  async* pages (attr: string, pageSize = Number.MAX_SAFE_INTEGER) {
     const firstPage = this.all(attr)
     yield firstPage
     if (!this.options(attr).some(o => o.startsWith('range=') || o.endsWith('*'))) return

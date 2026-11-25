@@ -1,21 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-/* global describe, it */
+import { describe, it } from 'node:test'
 import { expect } from 'chai'
 import ldap from '../src/client'
 import { AndFilter, EqualityFilter } from 'ldapts'
 import Ldap from '../src'
-
-before(async function () {
-  this.timeout(30000)
-  for (let i = 0; i < 30; i++) {
-    try {
-      await ldap.setAttribute('cn=Bender Bending Rodriguez,ou=people,dc=planetexpress,dc=com', 'cn', 'Bender Bending Rodriguez')
-      break
-    } catch (e: any) {
-      await new Promise(resolve => setTimeout(resolve, 1000))
-    }
-  }
-})
 
 describe('basic tests', () => {
   it('should be able to search for all users', async () => {
@@ -115,7 +102,7 @@ describe('basic tests', () => {
     expect(Buffer.from(jsonObj.jpegPhoto, 'base64').length).to.be.greaterThan(0)
     await lcClient.close()
   })
-  it('should close idle connections after the idle timeout', async function () {
+  it('should close idle connections after the idle timeout', async () => {
     const timeoutClient = new Ldap({ idleTimeoutSeconds: 0.25 })
     await Promise.all([
       timeoutClient.get('cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com'),
@@ -134,7 +121,7 @@ describe('basic tests', () => {
   })
   it('should be able to manipulate entries as they are retrieved', async () => {
     const transformClient = new Ldap({
-      transformEntries: (entry) => {
+      transformEntries: entry => {
         if (entry.get('cn') === 'Bender Bending Rodriguez') {
           entry.set('customAttribute', 'Custom Value')
         }

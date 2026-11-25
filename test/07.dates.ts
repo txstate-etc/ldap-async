@@ -1,10 +1,9 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-/* global describe, it */
+import { describe, it } from 'node:test'
 import { expect } from 'chai'
 import ldap from '../src/client'
 
-function pad(n: number, len = 2) { return String(n).padStart(len, '0') }
-function toGeneralizedTime(d: Date) {
+function pad (n: number, len = 2) { return String(n).padStart(len, '0') }
+function toGeneralizedTime (d: Date) {
   return '' + d.getUTCFullYear()
     + pad(d.getUTCMonth() + 1)
     + pad(d.getUTCDate())
@@ -15,9 +14,7 @@ function toGeneralizedTime(d: Date) {
 }
 
 describe('date parsing tests', () => {
-  it('parses ISO8601, GeneralizedTime, unix seconds, unix millis, and Windows FILETIME', async function () {
-    this.timeout(10000)
-
+  it('parses ISO8601, GeneralizedTime, unix seconds, unix millis, and Windows FILETIME', { timeout: 10000 }, async () => {
     const now = new Date()
     const nowSeconds = Math.floor(now.getTime() / 1000)
     const nowMillis = now.getTime()

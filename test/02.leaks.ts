@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-/* global describe, it */
+import { describe, it } from 'node:test'
 import { expect } from 'chai'
 import ldap from '../src/client'
 
@@ -25,7 +24,7 @@ describe('connection leak tests', () => {
     }
   })
   it('should not leak connections for add actions', async () => {
-    await Promise.all(reps.map(async (i) => {
+    await Promise.all(reps.map(async i => {
       await ldap.add(`cn=test_group${i},ou=people,dc=planetexpress,dc=com`, {
         objectclass: ['Group', 'top'],
         groupType: '2147483650',
@@ -52,7 +51,7 @@ describe('connection leak tests', () => {
     }
   })
   it('should not leak connections when multiple pages are being used', async () => {
-    await Promise.all(reps.map(async (i) => {
+    await Promise.all(reps.map(async i => {
       await ldap.search('ou=people,dc=planetexpress,dc=com', {
         scope: 'sub',
         filter: 'objectclass=person',
@@ -64,7 +63,7 @@ describe('connection leak tests', () => {
     }
   })
   it('should not leak connections when multiple pages are being used and we cancel the stream', async () => {
-    await Promise.all(reps.map(async (i) => {
+    await Promise.all(reps.map(async i => {
       const stream = ldap.stream('ou=people,dc=planetexpress,dc=com', {
         scope: 'sub',
         filter: 'objectclass=person',
@@ -86,7 +85,7 @@ describe('connection leak tests', () => {
   })
   it('should not leak connections when multiple pages are being used and we throw an error', async () => {
     try {
-      await Promise.all(reps.map(async (i) => {
+      await Promise.all(reps.map(async i => {
         const stream = ldap.stream('ou=people,dc=planetexpress,dc=com', {
           scope: 'sub',
           filter: 'objectclass=person',

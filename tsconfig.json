@@ -1,11 +1,14 @@
 {
   "compilerOptions": {
-    "target": "es2019",
+    "target": "es2022",
     "module": "commonjs",
     "declaration": true,
+    "rootDir": "./src",
     "outDir": "./dist",
     "strict": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "types": ["node"],
+    "skipLibCheck": true
   },
   "include": ["src"]
 }

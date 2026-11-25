@@ -1,8 +1,7 @@
-/* eslint-disable @typescript-eslint/no-unused-expressions */
-/* global describe, it */
+import { describe, it } from 'node:test'
 import { expect } from 'chai'
 import ldap from '../src/client'
-import { type LdapEntry } from '../src'
+import type { LdapEntry } from '../src'
 
 const fryDN = 'cn=Philip J. Fry,ou=people,dc=planetexpress,dc=com'
 const amyDN = 'cn=Amy Wong+sn=Kroker,ou=people,dc=planetexpress,dc=com'

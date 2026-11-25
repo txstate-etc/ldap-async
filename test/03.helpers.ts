@@ -1,4 +1,4 @@
-/* global describe, it */
+import { describe, it } from 'node:test'
 import { expect } from 'chai'
 import ldap from '../src/client'
 
@@ -6,7 +6,7 @@ describe('helper tests', () => {
   it('should properly escape strings in queries with use of ldap.filter function', async () => {
     const injection = await ldap.search('ou=people,dc=planetexpress,dc=com', {
       scope: 'sub',
-      filter: `givenName=${'H*'}`
+      filter: 'givenName=H*'
     })
     expect(injection).to.have.lengthOf(2)
     const safe = await ldap.search('ou=people,dc=planetexpress,dc=com', {

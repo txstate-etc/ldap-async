@@ -21,8 +21,10 @@
   "scripts": {
     "prepublishOnly": "npm run build",
     "build": "rm -rf dist && tsc",
-    "mocha": "mocha -r ts-node/register test/**/*.ts",
-    "test": "./test.sh"
+    "test": "./test.sh",
+    "build:test": "rm -rf ./dist-test && tsc -p tsconfig.test.json",
+    "test:integration": "npm run build:test && node --enable-source-maps --test --test-isolation=none dist-test/test/*.js",
+    "lint": "eslint src test"
   },
   "engines": {
     "node": ">=22"
@@ -31,15 +33,14 @@
     "ldapts": "^9.3.3"
   },
   "devDependencies": {
-    "@types/chai": "^4.2.14",
-    "@types/mocha": "^10.0.2",
-    "@types/node": "^20.8.2",
-    "chai": "^4.2.0",
-    "eslint-config-standard-with-typescript": "^39.0.0",
-    "image-size": "^1.0.1",
-    "mocha": "^10.0.0",
-    "ts-node": "^10.2.0",
-    "typescript": "^5.2.2"
+    "@stylistic/eslint-plugin": "^6.0.1",
+    "@types/chai": "^5.2.3",
+    "@types/node": "^26.6.7",
+    "chai": "^6.3.0",
+    "eslint": "^10.15.0",
+    "eslint-config-love": "^158.0.0",
+    "image-size": "^2.1.0",
+    "typescript": "^6.0.3"
   },
   "repository": {
     "type": "git",
